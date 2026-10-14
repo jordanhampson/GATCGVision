@@ -1,0 +1,24 @@
+name: Build card library
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm install
+      - run: node tools/build-library.mjs
+      - name: Commit library
+        run: |
+          git config user.name "library-bot"
+          git config user.email "library-bot@users.noreply.github.com"
+          git add library
+          git diff --cached --quiet || git commit -m "Update card library"
+          git push
