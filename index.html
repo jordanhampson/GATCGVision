@@ -1,100 +1,899 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Grand Archive - SpellTable Clone</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Load OpenCV.js for real-time card bounding & feature extraction -->
-  <script async src="https://docs.opencv.org/4.7.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
-  <style>
-    .viewport-container {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      background: #0f172a;
-    }
-    canvas#overlayCanvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-      pointer-events: none;
-    }
-    .card-glow {
-      box-shadow: 0 0 20px rgba(234, 179, 8, 0.4);
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archive Table — Grand Archive over webcam</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --felt:#12302d; --felt-hi:#1a423e; --panel:#0d1f1d; --panel-hi:#142b28;
+  --ink:#e8efe9; --muted:#98b2aa; --brass:#d6ab52; --brass-ink:#241a05;
+  --bad:#e5705a; --line:rgba(232,239,233,.15);
+  --serif:"Fraunces",Georgia,"Times New Roman",serif;
+  --sans:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{background:var(--felt);color:var(--ink);font:15px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+[hidden]{display:none!important}
+
+.bar{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--panel);min-height:56px}
+.brand{font-family:var(--serif);font-weight:700;font-size:21px;letter-spacing:.2px}
+.grow{flex:1}
+.chip{display:flex;align-items:center;gap:10px;padding:4px 6px 4px 12px;border:1px solid var(--line);border-radius:999px;background:var(--panel-hi)}
+.chip b{font-family:var(--serif);letter-spacing:2px;font-size:17px}
+.btn{border:1px solid var(--line);background:var(--panel-hi);padding:7px 13px;border-radius:8px;font-weight:500}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--brass);border-color:var(--brass);color:var(--brass-ink);font-weight:600}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.small{padding:3px 10px;border-radius:999px;font-size:13px}
+.btn.link{border:0;background:none;color:var(--muted);text-decoration:underline;padding:4px 0}
+input[type=text],input[type=search],input[type=number],select{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
+label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
+
+/* lobby */
+#lobby{display:grid;grid-template-columns:minmax(300px,440px) minmax(300px,1fr);gap:40px;max-width:1100px;margin:0 auto;padding:44px 22px}
+#lobby h1{font-family:var(--serif);font-weight:700;font-size:clamp(30px,4.4vw,46px);line-height:1.1;margin:0 0 14px;max-width:14ch}
+.lead{color:var(--muted);margin:0 0 26px;max-width:42ch}
+.field{margin-bottom:16px}
+.pair{display:flex;gap:10px;align-items:flex-end;margin-bottom:12px}
+.pair .field{flex:1;margin:0}
+#lobbyMsg{min-height:22px;color:var(--bad);margin:10px 0 0}
+.preview{align-self:start;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#071312}
+.preview video{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#071312}
+.camTools{display:flex;flex-wrap:wrap;gap:8px;padding:10px;align-items:center}
+.camTools select{width:auto;max-width:230px}
+.preview .empty{aspect-ratio:16/9;display:grid;place-items:center;color:var(--muted);text-align:center;padding:20px}
+
+/* table */
+#tableView{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:12px;padding:12px;height:calc(100vh - 56px);min-height:560px}
+.stage{display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0}
+#grid{flex:1;display:grid;gap:10px;grid-template-columns:1fr;align-content:start;overflow:auto;min-height:0}
+#grid[data-n="2"],#grid[data-n="3"],#grid[data-n="4"]{grid-template-columns:repeat(2,minmax(0,1fr))}
+.strip{display:flex;flex-wrap:wrap;gap:12px 16px;align-items:center;padding:8px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.strip .camTools{padding:0}
+.strip .opt{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;margin:0}
+.strip input[type=range]{width:110px;accent-color:var(--brass)}
+.strip input[type=checkbox]{accent-color:var(--brass)}
+.strip select{width:auto}
+
+.tile{position:relative;border-radius:14px;overflow:hidden;background:#071312;border:1px solid var(--line);aspect-ratio:16/9;min-height:0}
+.tile.mine{border-color:rgba(214,171,82,.55)}
+.feed{position:absolute;inset:0}
+.feed video{width:100%;height:100%;object-fit:contain;display:block}
+.tile.rot video{transform:rotate(180deg)}
+.tile.arming .feed{cursor:crosshair;outline:3px solid var(--brass);outline-offset:-3px}
+.mark{position:absolute;border:2px solid var(--brass);border-radius:6px;pointer-events:none;box-shadow:0 0 0 9999px rgba(0,0,0,.4)}
+.hint{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:var(--brass);color:var(--brass-ink);padding:5px 12px;border-radius:999px;font-weight:600;font-size:13px;pointer-events:none}
+.tools{position:absolute;top:10px;right:10px;display:flex;gap:6px;opacity:0;transition:opacity .15s}
+.tile:hover .tools,.tile:focus-within .tools,.tile.arming .tools{opacity:1}
+@media (hover:none){.tools{opacity:1}}
+.tools .btn{background:rgba(7,19,18,.82);backdrop-filter:blur(4px);padding:5px 10px;font-size:13px}
+.hud{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:flex-end;gap:14px;padding:26px 14px 10px;background:linear-gradient(to top,rgba(5,14,13,.88),rgba(5,14,13,0));pointer-events:none}
+.hud>*{pointer-events:auto}
+.who{display:flex;flex-direction:column;min-width:0;flex:1}
+.who strong{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who span{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lifebox{display:flex;align-items:center;gap:6px}
+.num{font-family:var(--serif);font-weight:700;font-size:clamp(38px,5.2vw,62px);line-height:1;min-width:2ch;text-align:center;font-variant-numeric:tabular-nums}
+.num.flash{animation:flash .5s}
+@keyframes flash{0%{color:var(--brass)}100%{color:inherit}}
+.adj{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:rgba(7,19,18,.75);font-weight:600;font-size:13px;padding:0}
+.adj:hover{border-color:var(--brass)}
+.remote .adj,.remote .editable{display:none}
+.sub{display:flex;flex-direction:column;gap:3px;align-items:flex-end;font-size:12.5px;color:var(--muted)}
+.sub .row{display:flex;align-items:center;gap:6px}
+.sub input{width:52px;padding:2px 6px;font-size:12.5px;border-radius:6px}
+.sub .lv{color:var(--ink);font-weight:600;min-width:1ch;text-align:center}
+.sub button{width:22px;height:22px;border-radius:50%;border:1px solid var(--line);background:rgba(7,19,18,.75);padding:0;line-height:1;font-size:13px}
+.down::after{content:"Champion defeated";position:absolute;inset:0;display:grid;place-items:center;background:rgba(40,8,4,.62);font-family:var(--serif);font-size:clamp(20px,3vw,34px);font-weight:700;pointer-events:none}
+.callout{position:absolute;left:12px;top:12px;width:min(34%,190px);border-radius:10px;overflow:hidden;border:2px solid var(--brass);background:#071312;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.callout img{display:block;width:100%}
+.callout span{display:block;padding:3px 8px;font-size:12px;font-weight:600;background:var(--brass);color:var(--brass-ink)}
+
+/* dock */
+.dock{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto}
+.card{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px}
+.card h3{margin:0 0 8px;font-family:var(--serif);font-size:16px;font-weight:700}
+.cardview .face{display:grid;grid-template-columns:132px 1fr;gap:12px}
+.cardview img{width:100%;border-radius:8px;display:block;background:#071312;aspect-ratio:5/7;object-fit:cover}
+.cardview h2{margin:0 0 2px;font-family:var(--serif);font-size:19px;line-height:1.2}
+.meta{color:var(--muted);font-size:13px;margin:0 0 8px}
+.effect{font-size:13.5px;max-height:150px;overflow:auto;margin:0;white-space:pre-line}
+.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.acts a{color:var(--muted);font-size:13px}
+.empty-note{color:var(--muted);font-size:14px;margin:0}
+.scanline{display:flex;gap:10px;align-items:flex-start}
+.scanline canvas{width:64px;height:64px;object-fit:cover;border-radius:6px;background:#071312;flex:none}
+.status{font-size:13px;color:var(--muted);margin:0 0 6px}
+.picks{display:flex;flex-wrap:wrap;gap:6px}
+.picks .btn{font-size:12.5px;padding:3px 9px}
+.picks .btn[aria-pressed=true]{border-color:var(--brass);color:var(--brass)}
+.rows{display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:230px;overflow:auto}
+.rowbtn{display:grid;grid-template-columns:34px 1fr;gap:10px;align-items:center;text-align:left;border:1px solid var(--line);background:var(--panel-hi);border-radius:8px;padding:5px 8px}
+.rowbtn:hover{border-color:var(--muted)}
+.rowbtn img{width:34px;aspect-ratio:5/7;object-fit:cover;border-radius:3px;background:#071312}
+.rowbtn small{display:block;color:var(--muted);font-size:12px}
+.feedlist,.loglist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;font-size:13.5px;max-height:150px;overflow:auto}
+.loglist li{color:var(--muted)}
+.loglist b{color:var(--ink);font-weight:600}
+.feedlist button{display:flex;gap:8px;align-items:center;width:100%;text-align:left;border:0;background:none;padding:2px 0}
+.feedlist img{width:26px;aspect-ratio:5/7;object-fit:cover;border-radius:3px}
+.feedlist small{color:var(--muted)}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:#0d1f1d;padding:9px 16px;border-radius:10px;font-weight:500;max-width:min(90vw,520px);z-index:20;box-shadow:0 8px 28px rgba(0,0,0,.4)}
+
+@media (max-width:900px){
+  #lobby{grid-template-columns:1fr;gap:24px;padding:26px 16px}
+  #tableView{grid-template-columns:1fr;height:auto}
+  #grid[data-n="2"],#grid[data-n="3"],#grid[data-n="4"]{grid-template-columns:1fr}
+  .cardview .face{grid-template-columns:104px 1fr}
+}
+@media (prefers-reduced-motion:reduce){.num.flash{animation:none}}
+</style>
 </head>
-<body class="bg-slate-950 text-slate-100 flex flex-col h-screen overflow-hidden font-sans">
+<body>
 
-  <!-- Header / Navigation Bar -->
-  <header class="h-14 border-b border-slate-800 bg-slate-900/80 px-4 flex items-center justify-between z-10">
-    <div class="flex items-center gap-3">
-      <div class="h-8 w-8 bg-amber-500 rounded-lg flex items-center justify-center font-bold text-slate-950">GA</div>
-      <h1 class="font-bold text-lg tracking-wide bg-gradient-to-r from-amber-400 to-amber-200 bg-clip-text text-transparent">
-        GA Tabletop Live
-      </h1>
-      <span class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-700">index.gatcg.com API</span>
+<header class="bar">
+  <div class="brand">Archive Table</div>
+  <div class="chip" id="roomChip" hidden><span>Table</span><b id="roomCode"></b><button class="btn small" id="copyCode">Copy code</button></div>
+  <div class="grow"></div>
+  <button class="btn" id="leaveBtn" hidden>Leave table</button>
+</header>
+
+<main id="lobby">
+  <section>
+    <h1>Play Grand Archive over webcam</h1>
+    <p class="lead">Point a camera at your playmat, share a table code, and track champion life while everyone reads your cards.</p>
+
+    <div class="field">
+      <label for="nameIn">Your name</label>
+      <input type="text" id="nameIn" maxlength="20" autocomplete="nickname">
     </div>
-
-    <!-- Controls -->
-    <div class="flex items-center gap-3">
-      <select id="cameraSelect" class="bg-slate-800 border border-slate-700 text-sm rounded px-2 py-1 focus:outline-none focus:border-amber-500">
-        <option value="">Selecting Camera...</option>
-      </select>
-      <button id="toggleCamBtn" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold px-3 py-1 rounded text-sm transition">
-        Start Camera
-      </button>
+    <div class="field">
+      <button class="btn primary" id="startTable">Start a table</button>
     </div>
-  </header>
+    <div class="pair">
+      <div class="field">
+        <label for="codeIn">Table code</label>
+        <input type="text" id="codeIn" maxlength="5" autocapitalize="characters" spellcheck="false">
+      </div>
+      <button class="btn" id="joinTable">Join table</button>
+    </div>
+    <button class="btn link" id="soloBtn">Practice solo, no network</button>
+    <p id="lobbyMsg" role="status"></p>
+  </section>
 
-  <!-- Main Viewport Layout -->
-  <div class="flex flex-1 overflow-hidden">
+  <section class="preview" id="previewBox">
+    <div class="empty" id="previewEmpty">Turn on your camera to check your playmat before you sit down.</div>
+    <video id="preview" autoplay muted playsinline hidden></video>
+    <div class="camTools" id="lobbyCamSlot">
+      <div id="camTools" style="display:contents">
+        <button class="btn" id="camBtn">Turn on camera</button>
+        <select id="camSel" aria-label="Camera" hidden></select>
+        <select id="qualSel" aria-label="Video quality">
+          <option value="1080">1080p (sharper cards)</option>
+          <option value="720">720p (lighter)</option>
+        </select>
+      </div>
+    </div>
+  </section>
+</main>
 
-    <!-- Left / Center: Video Feeds Area -->
-    <div class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-2 p-2 bg-slate-900/50">
-      
-      <!-- Player 1 Feed (Local User Feed) -->
-      <div class="viewport-container rounded-xl overflow-hidden border border-slate-800 flex flex-col justify-between">
-        <video id="webcam" class="hidden" autoplay playsinline muted></video>
-        <canvas id="videoCanvas" class="w-full h-full object-cover"></canvas>
-        <canvas id="overlayCanvas"></canvas>
+<main id="tableView" hidden>
+  <section class="stage">
+    <div id="grid" data-n="1"></div>
+    <div class="strip" id="strip">
+      <button class="btn small" id="micBtn" aria-pressed="false">Mute mic</button>
+      <label class="opt">Scan area <input type="range" id="scanSize" min="0.25" max="0.8" step="0.01"></label>
+      <label class="opt"><input type="checkbox" id="autoShare"> Show confident scans to the table</label>
+    </div>
+  </section>
 
-        <!-- Player 1 HUD -->
-        <div class="absolute bottom-3 left-3 right-3 flex justify-between items-end pointer-events-auto">
-          <div class="bg-slate-900/90 backdrop-blur border border-slate-800 rounded-lg p-2.5 flex gap-4 items-center shadow-xl">
-            <div>
-              <div class="text-xs text-slate-400 uppercase font-semibold">Player 1 (You)</div>
-              <div class="text-sm font-medium text-amber-400">Champion Lv. <span id="p1-level">1</span></div>
-            </div>
-            
-            <!-- Life Counter -->
-            <div class="flex items-center gap-2 bg-slate-950 rounded px-2 py-1 border border-slate-800">
-              <button onclick="updateStat('p1-life', -1)" class="w-6 h-6 rounded bg-slate-800 hover:bg-red-500/20 text-red-400 flex items-center justify-center font-bold">-</button>
-              <div class="text-center min-w-[35px]">
-                <span id="p1-life" class="text-lg font-extrabold text-red-400">20</span>
-                <span class="text-[10px] block text-slate-500 uppercase -mt-1">Life</span>
-              </div>
-              <button onclick="updateStat('p1-life', 1)" class="w-6 h-6 rounded bg-slate-800 hover:bg-green-500/20 text-green-400 flex items-center justify-center font-bold">+</button>
-            </div>
+  <aside class="dock">
+    <section class="card cardview" id="viewer">
+      <h3>Card</h3>
+      <p class="empty-note">Scan a card on camera or search by name. It appears here.</p>
+    </section>
 
-            <!-- Memory / Reserve Counter -->
-            <div class="flex items-center gap-2 bg-slate-950 rounded px-2 py-1 border border-slate-800">
-              <button onclick="updateStat('p1-mem', -1)" class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-blue-400 flex items-center justify-center font-bold">-</button>
-              <div class="text-center min-w-[35px]">
-                <span id="p1-mem" class="text-lg font-extrabold text-blue-400">0</span>
-                <span class="text-[10px] block text-slate-500 uppercase -mt-1">Memory</span>
-              </div>
-              <button onclick="updateStat('p1-mem', 1)" class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-blue-400 flex items-center justify-center font-bold">+</button>
-            </div>
-          </div>
-
-          <div class="bg-slate-900/80 backdrop-blur px-2.5 py-1 rounded text-xs text-slate-400 border border-slate-800">
-            Status: <span id="cv-status" class="text-amber-400">Initializing OpenCV...</span>
-          </div>
+    <section class="card">
+      <h3>Last scan</h3>
+      <div class="scanline">
+        <canvas id="scanThumb" width="64" height="64" hidden></canvas>
+        <div style="flex:1;min-width:0">
+          <p class="status" id="scanStatus">Hover a video, press Scan card, then click the card.</p>
+          <div class="picks" id="picks"></div>
         </div>
       </div>
+    </section>
 
-      <!-- Player 2 Feed (Remote Opponent Mockup) -->
-      <div class="viewport-container rounded-xl overflow-hidden border border-slate-800 flex flex-col justify-between opacity-80">
-        <div class="absolute inset-0 flex items-
+    <section class="card">
+      <h3>Find a card</h3>
+      <input type="search" id="findIn" placeholder="Search by card name" aria-label="Search by card name">
+      <div class="rows" id="findRows"></div>
+    </section>
+
+    <section class="card">
+      <h3>Shown to the table</h3>
+      <ul class="feedlist" id="sharedList"><li class="empty-note">Nothing shown yet.</li></ul>
+    </section>
+
+    <section class="card">
+      <h3>Life log</h3>
+      <ul class="loglist" id="logList"><li>No changes yet.</li></ul>
+    </section>
+  </aside>
+</main>
+
+<div id="toast" role="status" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(() => {
+'use strict';
+
+/* ---------- helpers ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const title = s => String(s).toLowerCase().replace(/(^|[\s-])\S/g, m => m.toUpperCase());
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem('archtbl_' + k); return v == null ? d : v; }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem('archtbl_' + k, v); }catch(e){} }
+};
+let toastTimer;
+function toast(msg){
+  const t = $('#toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 5000);
+}
+const loadScript = src => new Promise((res, rej) => {
+  const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Could not load ' + src));
+  document.head.appendChild(s);
+});
+
+/* ---------- config ---------- */
+// Card data and images come from the Grand Archive API, the backend behind index.gatcg.com.
+const cfg = {
+  api: store.get('api', 'https://api.gatcg.com'),
+  index: 'https://index.gatcg.com',
+  scan: parseFloat(store.get('scan', '0.42')) || 0.42,
+  autoShare: store.get('auto', '1') === '1',
+  quality: store.get('q', '1080')
+};
+
+/* ---------- player state ---------- */
+const me = { id: 'me', name: store.get('name', ''), life: parseInt(store.get('life', '20'), 10) || 20, dmg: 0, level: 0, champ: '' };
+const players = new Map([['me', me]]);
+const tiles = new Map();
+const remaining = p => Math.max(0, (p.life || 0) - (p.dmg || 0));
+const snap = p => ({ name: p.name, life: p.life, dmg: p.dmg, level: p.level, champ: p.champ });
+
+/* ---------- camera ---------- */
+const cam = { stream: null, videoTrack: null, audioTrack: null, deviceId: store.get('dev', ''), mic: true };
+let blank = null;
+
+function makeBlank(){
+  const c = document.createElement('canvas'); c.width = 640; c.height = 360;
+  const x = c.getContext('2d');
+  const draw = () => {
+    x.fillStyle = '#0d1f1d'; x.fillRect(0, 0, 640, 360);
+    x.fillStyle = '#e8efe9'; x.font = '30px sans-serif'; x.textAlign = 'center';
+    x.fillText((me.name || 'Player') + ' (no camera)', 320, 190);
+  };
+  draw(); setInterval(draw, 1500);
+  const s = c.captureStream(2);
+  try{
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const dest = ac.createMediaStreamDestination();
+    dest.stream.getAudioTracks().forEach(t => s.addTrack(t));
+  }catch(e){}
+  return s;
+}
+const outgoing = () => cam.stream || (blank || (blank = makeBlank()));
+
+async function openCamera(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    throw new Error('This browser blocks camera access here. Open the page from localhost or https.');
+  }
+  stopCamera();
+  const dims = cfg.quality === '1080' ? { width: { ideal: 1920 }, height: { ideal: 1080 } } : { width: { ideal: 1280 }, height: { ideal: 720 } };
+  const video = { ...dims, frameRate: { ideal: 30 } };
+  if(cam.deviceId) video.deviceId = { ideal: cam.deviceId };
+  let s;
+  try{
+    s = await navigator.mediaDevices.getUserMedia({ video, audio: { echoCancellation: true, noiseSuppression: true } });
+  }catch(e1){
+    s = await navigator.mediaDevices.getUserMedia({ video });
+    toast('Microphone unavailable. Others will see you but not hear you.');
+  }
+  cam.stream = s;
+  cam.videoTrack = s.getVideoTracks()[0];
+  cam.audioTrack = s.getAudioTracks()[0] || null;
+  if(cam.audioTrack) cam.audioTrack.enabled = cam.mic;
+  await refreshDevices();
+  showLocal();
+  swapTracks();
+  $('#camBtn').textContent = 'Restart camera';
+}
+function stopCamera(){
+  if(cam.stream) cam.stream.getTracks().forEach(t => t.stop());
+  cam.stream = cam.videoTrack = cam.audioTrack = null;
+}
+async function refreshDevices(){
+  const sel = $('#camSel');
+  try{
+    const list = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    const current = cam.videoTrack && cam.videoTrack.getSettings().deviceId;
+    sel.innerHTML = list.map((d, i) => `<option value="${esc(d.deviceId)}" ${d.deviceId === current ? 'selected' : ''}>${esc(d.label || 'Camera ' + (i + 1))}</option>`).join('');
+    sel.hidden = list.length < 2;
+  }catch(e){}
+}
+function showLocal(){
+  const pv = $('#preview');
+  pv.srcObject = cam.stream; pv.hidden = !cam.stream; $('#previewEmpty').hidden = !!cam.stream;
+  const t = tiles.get('me'); if(t) t.video.srcObject = outgoing();
+}
+function swapTracks(){
+  net.calls.forEach(call => {
+    const pc = call.peerConnection; if(!pc) return;
+    [['video', cam.videoTrack], ['audio', cam.audioTrack]].forEach(([kind, track]) => {
+      const sender = pc.getSenders().find(s => s.track && s.track.kind === kind);
+      if(sender && track) sender.replaceTrack(track).catch(() => {});
+    });
+  });
+}
+
+/* ---------- tiles ---------- */
+function ensureTile(id){
+  let t = tiles.get(id); if(t) return t;
+  const mine = id === 'me';
+  const root = document.createElement('article');
+  root.className = 'tile ' + (mine ? 'mine' : 'remote');
+  root.dataset.id = id;
+  root.innerHTML = `
+    <div class="feed">
+      <video autoplay playsinline></video>
+      <div class="mark" hidden></div>
+      <div class="hint" hidden>Click the card you want to read</div>
+      <div class="callout" hidden><img alt=""><span></span></div>
+    </div>
+    <div class="tools">
+      <button class="btn scan" type="button">Scan card</button>
+      <button class="btn rot" type="button" aria-pressed="false" title="Turn this view upside down (overhead cameras)">Rotate view</button>
+    </div>
+    <div class="hud">
+      <div class="who"><strong class="nm"></strong><span class="champ"></span></div>
+      <div class="lifebox">
+        <button class="adj" data-life="-5" type="button" aria-label="Lose 5 life">−5</button>
+        <button class="adj" data-life="-1" type="button" aria-label="Lose 1 life">−1</button>
+        <output class="num" aria-live="polite">20</output>
+        <button class="adj" data-life="1" type="button" aria-label="Gain 1 life">+1</button>
+        <button class="adj" data-life="5" type="button" aria-label="Gain 5 life">+5</button>
+      </div>
+      <div class="sub">
+        <div class="row">Damage <b class="dmg">0</b></div>
+        <div class="row">Champion life <input class="maxlife editable" type="number" min="1" max="99" aria-label="Champion life"><span class="maxview"></span></div>
+        <div class="row">Level
+          <button class="editable" data-lvl="-1" type="button" aria-label="Level down">−</button>
+          <span class="lv">0</span>
+          <button class="editable" data-lvl="1" type="button" aria-label="Level up">+</button>
+        </div>
+      </div>
+    </div>`;
+  const t2 = {
+    id, root, rot: false,
+    video: root.querySelector('video'), feed: root.querySelector('.feed'),
+    mark: root.querySelector('.mark'), hint: root.querySelector('.hint'),
+    callout: root.querySelector('.callout'), num: root.querySelector('.num')
+  };
+  t2.video.muted = mine; t2.video.playsInline = true;
+  root.addEventListener('click', e => onTileClick(t2, e));
+  root.querySelector('.maxlife').addEventListener('change', e => {
+    if(!mine) return;
+    const v = Math.max(1, Math.min(99, parseInt(e.target.value, 10) || me.life));
+    me.life = v; store.set('life', v); commit();
+  });
+  tiles.set(id, t2);
+  $('#grid').appendChild(root);
+  $('#grid').dataset.n = Math.min(4, tiles.size);
+  return t2;
+}
+function removeTile(id){
+  const t = tiles.get(id); if(!t) return;
+  t.root.remove(); tiles.delete(id); players.delete(id);
+  $('#grid').dataset.n = Math.min(4, Math.max(1, tiles.size));
+}
+function renderTile(id, flash){
+  const p = players.get(id), t = tiles.get(id); if(!p || !t) return;
+  const r = remaining(p);
+  t.root.querySelector('.nm').textContent = p.name || 'Player';
+  t.root.querySelector('.champ').textContent = p.champ || 'No champion set';
+  const prev = t.num.textContent;
+  t.num.textContent = r;
+  if(flash && String(r) !== prev){ t.num.classList.remove('flash'); void t.num.offsetWidth; t.num.classList.add('flash'); }
+  t.root.querySelector('.dmg').textContent = p.dmg;
+  const ml = t.root.querySelector('.maxlife');
+  if(document.activeElement !== ml) ml.value = p.life;
+  t.root.querySelector('.maxview').textContent = id === 'me' ? '' : '/ ' + p.life;
+  if(id !== 'me') ml.style.display = 'none';
+  t.root.querySelector('.lv').textContent = p.level;
+  t.root.classList.toggle('down', r === 0);
+}
+function commit(){
+  renderTile('me', true);
+  broadcast({ t: 'state', s: snap(me) });
+}
+function addLog(html){
+  const ul = $('#logList');
+  if(ul.firstElementChild && ul.firstElementChild.textContent === 'No changes yet.') ul.innerHTML = '';
+  const li = document.createElement('li'); li.innerHTML = html; ul.prepend(li);
+  while(ul.children.length > 40) ul.lastChild.remove();
+}
+
+/* ---------- tile interactions ---------- */
+let arming = null;
+function onTileClick(t, e){
+  const btn = e.target.closest('button');
+  if(btn){
+    if(btn.classList.contains('scan')){ arm(t.id === arming ? null : t.id); return; }
+    if(btn.classList.contains('rot')){
+      t.rot = !t.rot; t.root.classList.toggle('rot', t.rot); btn.setAttribute('aria-pressed', t.rot); return;
+    }
+    if(t.id === 'me' && btn.dataset.life){
+      const d = parseInt(btn.dataset.life, 10);
+      const before = remaining(me);
+      me.dmg = Math.max(0, me.dmg - d);
+      const after = remaining(me);
+      if(after !== before) addLog(`<b>${esc(me.name || 'You')}</b> ${before} → ${after}`);
+      commit(); return;
+    }
+    if(t.id === 'me' && btn.dataset.lvl){
+      me.level = Math.max(0, Math.min(9, me.level + parseInt(btn.dataset.lvl, 10))); commit(); return;
+    }
+    return;
+  }
+  if(arming === t.id && e.target.closest('.feed')) runScan(t, e);
+}
+function arm(id){
+  arming = id;
+  tiles.forEach(t => { t.root.classList.toggle('arming', t.id === id); t.hint.hidden = t.id !== id; });
+  if(id) $('#scanStatus').textContent = 'Click the card in the video.';
+}
+
+/* ---------- networking (PeerJS mesh, up to 4 players) ---------- */
+const net = { peer: null, code: '', host: false, conns: new Map(), calls: new Map(), members: new Set() };
+const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const newCode = () => Array.from({ length: 5 }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]).join('');
+
+function createPeer(id){
+  return new Promise((res, rej) => {
+    const p = new Peer(id, { debug: 0 });
+    p.on('open', () => res(p));
+    p.on('error', e => rej(e));
+  });
+}
+function broadcast(msg){ net.conns.forEach(c => { if(c.open) c.send(msg); }); }
+
+function link(id){
+  if(!net.peer || net.conns.has(id) || id === net.peer.id) return;
+  setupConn(net.peer.connect(id, { reliable: true }));
+  wireCall(net.peer.call(id, outgoing()));
+}
+function setupConn(conn){
+  net.conns.set(conn.peer, conn);
+  conn.on('open', () => conn.send({ t: 'state', s: snap(me) }));
+  conn.on('data', d => onData(conn, d));
+  conn.on('close', () => dropPlayer(conn.peer));
+  conn.on('error', () => dropPlayer(conn.peer));
+}
+function wireCall(call){
+  net.calls.set(call.peer, call);
+  call.on('stream', s => { const t = ensureTile(call.peer); t.video.srcObject = s; t.video.play().catch(() => {}); });
+  call.on('close', () => dropPlayer(call.peer));
+}
+function dropPlayer(id){
+  if(!tiles.has(id) && !net.conns.has(id)) return;
+  const p = players.get(id);
+  if(p && p.name) addLog(`<b>${esc(p.name)}</b> left the table`);
+  const c = net.conns.get(id); net.conns.delete(id); try{ c && c.close(); }catch(e){}
+  const k = net.calls.get(id); net.calls.delete(id); try{ k && k.close(); }catch(e){}
+  net.members.delete(id);
+  removeTile(id);
+}
+function onData(conn, d){
+  if(!d || typeof d !== 'object') return;
+  const id = conn.peer;
+  if(d.t === 'state'){
+    const t = ensureTile(id);
+    const p = players.get(id) || { id, dmg: 0, life: 20, level: 0, name: '', champ: '' };
+    const before = remaining(p), known = players.has(id);
+    Object.assign(p, d.s); players.set(id, p);
+    renderTile(id, true);
+    if(!known) addLog(`<b>${esc(p.name || 'A player')}</b> joined`);
+    else if(remaining(p) !== before) addLog(`<b>${esc(p.name || 'Player')}</b> ${before} → ${remaining(p)}`);
+  }else if(d.t === 'peers' && Array.isArray(d.ids)){
+    d.ids.forEach(link);
+  }else if(d.t === 'full'){
+    toast('That table already has four players.'); leaveTable();
+  }else if(d.t === 'card' && d.card){
+    pushShared(d.card, id);
+  }
+}
+function onIncoming(conn){
+  setupConn(conn);
+  if(!net.host) return;
+  conn.on('open', () => {
+    if(net.members.size >= 3){ conn.send({ t: 'full' }); setTimeout(() => conn.close(), 300); net.conns.delete(conn.peer); return; }
+    conn.send({ t: 'peers', ids: [...net.members] });
+    net.members.add(conn.peer);
+  });
+}
+
+async function enterTable(code, asHost){
+  const msg = $('#lobbyMsg'); msg.textContent = '';
+  me.name = $('#nameIn').value.trim() || 'Player'; store.set('name', me.name);
+  if(!cam.stream){
+    try{ await openCamera(); }catch(e){ toast('Camera is off, so others will see a placeholder. Use Restart camera in the controls to turn it on.'); }
+  }
+  try{
+    let id;
+    if(asHost){
+      for(let i = 0; i < 4; i++){
+        code = i ? newCode() : code;
+        try{ net.peer = await createPeer('archtbl-' + code); break; }
+        catch(e){ if(e.type !== 'unavailable-id' || i === 3) throw e; }
+      }
+      net.host = true;
+    }else{
+      net.peer = await createPeer('archtbl-' + code + '-' + Math.random().toString(36).slice(2, 7));
+      net.host = false;
+    }
+    net.code = code;
+    net.peer.on('connection', onIncoming);
+    net.peer.on('call', call => { call.answer(outgoing()); wireCall(call); });
+    net.peer.on('disconnected', () => { try{ net.peer.reconnect(); }catch(e){} });
+    net.peer.on('error', e => {
+      if(e.type === 'peer-unavailable') toast(net.host ? 'A player dropped before connecting.' : 'No table found with that code.');
+      else if(e.type !== 'unavailable-id') toast('Network problem: ' + e.type);
+    });
+    showTable();
+    $('#roomCode').textContent = code; $('#roomChip').hidden = false;
+    if(!asHost){
+      link('archtbl-' + code);
+      setTimeout(() => { if(!net.conns.size && net.peer){ toast('Could not reach that table. Check the code.'); leaveTable(); } }, 9000);
+    }
+  }catch(e){
+    msg.textContent = e.type === 'unavailable-id' ? 'That code is taken. Try again.' : 'Could not connect to the matchmaking server (' + (e.type || e.message) + ').';
+    cleanupNet();
+  }
+}
+function cleanupNet(){
+  net.conns.forEach(c => { try{ c.close(); }catch(e){} });
+  net.calls.forEach(c => { try{ c.close(); }catch(e){} });
+  try{ net.peer && net.peer.destroy(); }catch(e){}
+  net.peer = null; net.conns.clear(); net.calls.clear(); net.members.clear(); net.host = false; net.code = '';
+}
+function leaveTable(){
+  cleanupNet();
+  [...tiles.keys()].forEach(id => { if(id !== 'me') removeTile(id); });
+  const t = tiles.get('me'); if(t) removeTile('me');
+  players.clear(); players.set('me', me);
+  me.dmg = 0; me.level = 0; me.champ = '';
+  $('#roomChip').hidden = true; $('#leaveBtn').hidden = true;
+  $('#tableView').hidden = true; $('#lobby').hidden = false;
+  $('#lobbyCamSlot').appendChild($('#camTools'));
+  arming = null; showLocal();
+}
+function showTable(){
+  $('#lobby').hidden = true; $('#tableView').hidden = false; $('#leaveBtn').hidden = false;
+  ensureTile('me'); renderTile('me');
+  $('#strip').prepend($('#camTools'));
+  showLocal();
+}
+
+/* ---------- Grand Archive card data ---------- */
+const cache = new Map();
+function norm(c){
+  const ed = (c.result_editions && c.result_editions[0]) || (c.editions && c.editions[0]) || {};
+  const img = ed.image ? (/^https?:/.test(ed.image) ? ed.image : cfg.api + ed.image) : '';
+  return {
+    slug: c.slug, name: c.name, types: c.types || [], subtypes: c.subtypes || [], classes: c.classes || [],
+    elements: c.elements || (c.element ? [c.element] : []),
+    cost: c.cost, level: c.level, life: c.life, power: c.power, durability: c.durability,
+    effect: c.effect_raw || '', img, set: (ed.set && ed.set.prefix) || '',
+    url: `${cfg.index}/card/${c.slug}`
+  };
+}
+async function searchCards(q, n = 8){
+  const url = `${cfg.api}/cards/search?name=${encodeURIComponent(q)}&page_size=${n}`;
+  if(cache.has(url)) return cache.get(url);
+  const r = await fetch(url);
+  if(!r.ok) throw new Error('Card API returned ' + r.status);
+  const j = await r.json();
+  const out = (j.data || []).map(norm);
+  cache.set(url, out); return out;
+}
+const isChampion = c => c.types.some(t => /champion/i.test(t));
+
+function metaLine(c){
+  const bits = [];
+  if(c.types.length) bits.push(c.types.map(title).join(' '));
+  if(c.subtypes.length) bits.push(c.subtypes.map(title).join(' '));
+  if(c.elements.length) bits.push(c.elements.map(title).join('/'));
+  return bits.join(' · ');
+}
+function statLine(c){
+  const bits = [];
+  if(c.cost && c.cost.type !== 'none' && c.cost.value != null) bits.push(`${title(c.cost.type)} ${c.cost.value}`);
+  if(c.level != null) bits.push('Level ' + c.level);
+  if(c.life != null) bits.push('Life ' + c.life);
+  if(c.power != null) bits.push('Power ' + c.power);
+  if(c.durability != null) bits.push('Durability ' + c.durability);
+  return bits.join(' · ');
+}
+
+let viewing = null;
+function showCard(c){
+  viewing = c;
+  const v = $('#viewer');
+  v.innerHTML = `
+    <h3>Card</h3>
+    <div class="face">
+      ${c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}">` : '<div></div>'}
+      <div>
+        <h2>${esc(c.name)}</h2>
+        <p class="meta">${esc(metaLine(c))}${c.set ? ' · ' + esc(c.set) : ''}</p>
+        <p class="meta">${esc(statLine(c))}</p>
+        <p class="effect">${esc(c.effect)}</p>
+      </div>
+    </div>
+    <div class="acts">
+      <button class="btn small" id="shareBtn" type="button">Show to table</button>
+      ${isChampion(c) ? '<button class="btn small" id="champBtn" type="button">Use as my champion</button>' : ''}
+      <a href="${esc(c.url)}" target="_blank" rel="noopener">Open on Index</a>
+    </div>`;
+  $('#shareBtn').onclick = () => shareCard(c);
+  const cb = $('#champBtn');
+  if(cb) cb.onclick = () => {
+    me.champ = c.name;
+    if(c.life != null) me.life = c.life;
+    if(c.level != null) me.level = c.level;
+    me.dmg = 0; commit(); toast(`${c.name} set as your champion.`);
+  };
+}
+
+/* ---------- shared card feed ---------- */
+const shared = [];
+const mini = c => ({ slug: c.slug, name: c.name, img: c.img, url: c.url, types: c.types, effect: c.effect, elements: c.elements, subtypes: c.subtypes, classes: c.classes, cost: c.cost, level: c.level, life: c.life, power: c.power, durability: c.durability, set: c.set });
+function shareCard(c){
+  broadcast({ t: 'card', card: mini(c) });
+  pushShared(c, 'me');
+  if(net.conns.size) toast(`Showing ${c.name} to the table.`);
+}
+function pushShared(c, byId){
+  const by = (players.get(byId) || {}).name || 'Player';
+  shared.unshift({ c, by });
+  if(shared.length > 12) shared.pop();
+  const ul = $('#sharedList'); ul.innerHTML = '';
+  shared.forEach(s => {
+    const li = document.createElement('li');
+    li.innerHTML = `<button type="button">${s.c.img ? `<img src="${esc(s.c.img)}" alt="">` : ''}<span>${esc(s.c.name)}<br><small>${esc(s.by)}</small></span></button>`;
+    li.firstChild.onclick = () => showCard(s.c);
+    ul.appendChild(li);
+  });
+  const t = tiles.get(byId);
+  if(t && c.img){
+    const co = t.callout; co.querySelector('img').src = c.img; co.querySelector('span').textContent = c.name; co.hidden = false;
+    clearTimeout(t.coT); t.coT = setTimeout(() => co.hidden = true, 8000);
+  }
+  if(byId !== 'me') showCard(c);
+}
+
+/* ---------- card recognition ---------- */
+let ocr = null;
+async function getOcr(){
+  if(ocr) return ocr;
+  if(!window.Tesseract) await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js');
+  const w = await Tesseract.createWorker('eng');
+  await w.setParameters({ tessedit_pageseg_mode: '11', preserve_interword_spaces: '1' });
+  return (ocr = w);
+}
+function lev(a, b){
+  const m = a.length, n = b.length; if(!m) return n; if(!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for(let i = 1; i <= m; i++){
+    const cur = [i];
+    for(let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[n];
+}
+const sim = (a, b) => { a = a.toLowerCase(); b = b.toLowerCase(); return (!a || !b) ? 0 : 1 - lev(a, b) / Math.max(a.length, b.length); };
+function score(cand, name){
+  const cw = cand.split(/\s+/), nw = name.split(/\s+/).length;
+  let best = sim(cand, name);
+  for(let i = 0; i + nw <= cw.length; i++) best = Math.max(best, sim(cw.slice(i, i + nw).join(' '), name));
+  return best;
+}
+function extractLines(d){
+  if(Array.isArray(d.lines) && d.lines.length) return d.lines.map(l => ({ text: l.text, conf: l.confidence }));
+  const out = [];
+  (d.blocks || []).forEach(b => (b.paragraphs || []).forEach(p => (p.lines || []).forEach(l => out.push({ text: l.text, conf: l.confidence }))));
+  if(out.length) return out;
+  return String(d.text || '').split('\n').map(t => ({ text: t, conf: d.confidence || 50 }));
+}
+function buildCandidates(lines){
+  const clean = lines.map(l => ({ t: l.text.replace(/[^A-Za-z'\- ]/g, ' ').replace(/\s+/g, ' ').trim(), c: l.conf }))
+    .filter(l => l.t.length >= 4 && l.c >= 25);
+  const seen = new Set(), ranked = [];
+  clean.sort((a, b) => b.c * b.t.length - a.c * a.t.length).forEach(l => { const k = l.t.toLowerCase(); if(!seen.has(k)){ seen.add(k); ranked.push(l.t); } });
+  const out = new Set();
+  ranked.slice(0, 4).forEach(t => {
+    out.add(t);
+    const w = t.split(' ');
+    if(w.length > 2) out.add(w.slice(0, 2).join(' '));
+    const longest = w.slice().sort((a, b) => b.length - a.length)[0];
+    if(longest && longest.length >= 5) out.add(longest);
+  });
+  return [...out].slice(0, 7);
+}
+async function matchCandidates(cands){
+  const results = await Promise.allSettled(cands.map(c => searchCards(c, 6)));
+  const best = new Map();
+  results.forEach((r, i) => {
+    if(r.status !== 'fulfilled') return;
+    r.value.forEach(card => {
+      const s = score(cands[i], card.name);
+      const cur = best.get(card.slug);
+      if(!cur || s > cur.score) best.set(card.slug, { card, score: s });
+    });
+  });
+  if(!best.size && results.every(r => r.status === 'rejected')) throw results[0].reason;
+  return [...best.values()].sort((a, b) => b.score - a.score);
+}
+function rotateCanvas(c, deg){
+  if(!deg) return c;
+  const o = document.createElement('canvas'), swap = deg === 90 || deg === 270;
+  o.width = swap ? c.height : c.width; o.height = swap ? c.width : c.height;
+  const g = o.getContext('2d');
+  g.translate(o.width / 2, o.height / 2); g.rotate(deg * Math.PI / 180);
+  g.drawImage(c, -c.width / 2, -c.height / 2);
+  return o;
+}
+function setStatus(s){ $('#scanStatus').textContent = s; }
+
+function grab(t, ev){
+  const v = t.video, vw = v.videoWidth, vh = v.videoHeight;
+  if(!vw || !vh){ toast('Video is not ready yet.'); return null; }
+  const r = t.feed.getBoundingClientRect();
+  let u = (ev.clientX - r.left) / r.width, w = (ev.clientY - r.top) / r.height;
+  if(t.rot){ u = 1 - u; w = 1 - w; }
+  const sc = Math.min(r.width / vw, r.height / vh), ox = (r.width - vw * sc) / 2, oy = (r.height - vh * sc) / 2;
+  const cx = (u * r.width - ox) / sc, cy = (w * r.height - oy) / sc;
+  if(cx < 0 || cy < 0 || cx > vw || cy > vh) return null;
+  const side = Math.min(Math.round(cfg.scan * vh), vw, vh);
+  const sx = Math.max(0, Math.min(vw - side, Math.round(cx - side / 2)));
+  const sy = Math.max(0, Math.min(vh - side, Math.round(cy - side / 2)));
+  const k = Math.min(2.5, Math.max(1, 1100 / side));
+  const c = document.createElement('canvas'); c.width = c.height = Math.round(side * k);
+  const g = c.getContext('2d'); g.filter = 'grayscale(1) contrast(1.35)';
+  g.drawImage(v, sx, sy, side, side, 0, 0, c.width, c.height);
+  // highlight box in display space
+  const bs = side * sc, bx = sx * sc + ox, by = sy * sc + oy;
+  Object.assign(t.mark.style, {
+    width: bs + 'px', height: bs + 'px',
+    left: (t.rot ? r.width - (bx + bs) : bx) + 'px', top: (t.rot ? r.height - (by + bs) : by) + 'px'
+  });
+  t.mark.hidden = false; setTimeout(() => t.mark.hidden = true, 1700);
+  return t.rot ? rotateCanvas(c, 180) : c;
+}
+
+let scanning = false;
+async function runScan(t, ev){
+  if(scanning) return;
+  const crop = grab(t, ev); if(!crop) return;
+  arm(null); scanning = true;
+  const th = $('#scanThumb'); th.hidden = false;
+  th.getContext('2d').drawImage(crop, 0, 0, th.width, th.height);
+  $('#picks').innerHTML = '';
+  try{
+    setStatus('Loading text reader (first scan only)…');
+    const w = await getOcr();
+    let best = { score: 0, list: [] };
+    for(const deg of [0, 90, 270, 180]){
+      setStatus(`Reading card… (${deg}°)`);
+      const { data } = await w.recognize(rotateCanvas(crop, deg));
+      const cands = buildCandidates(extractLines(data));
+      if(!cands.length) continue;
+      const found = await matchCandidates(cands);
+      if(found.length && found[0].score > best.score) best = { score: found[0].score, list: found };
+      if(best.score >= 0.82) break;
+    }
+    if(!best.list.length){ setStatus('Could not read any card text. Try a larger scan area, better light, or search by name.'); return; }
+    const top = best.list.slice(0, 4);
+    const sure = best.score >= 0.55;
+    setStatus(sure ? `Best match: ${top[0].card.name} (${Math.round(best.score * 100)}% sure). Not right? Pick another.` : 'No confident match. Pick one, or search by name.');
+    const picks = $('#picks');
+    top.forEach((m, i) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn'; b.textContent = m.card.name; b.setAttribute('aria-pressed', i === 0 && sure);
+      b.onclick = () => { [...picks.children].forEach(x => x.setAttribute('aria-pressed', 'false')); b.setAttribute('aria-pressed', 'true'); showCard(m.card); };
+      picks.appendChild(b);
+    });
+    if(sure) showCard(top[0].card);
+    if(sure && best.score >= 0.72 && cfg.autoShare && t.id === 'me') shareCard(top[0].card);
+  }catch(e){
+    setStatus('Scan failed: ' + (e.message || e) + '. If this mentions the card API, check your connection.');
+  }finally{
+    scanning = false;
+  }
+}
+
+/* ---------- manual search ---------- */
+let findT;
+$('#findIn').addEventListener('input', e => {
+  clearTimeout(findT);
+  const q = e.target.value.trim(), rows = $('#findRows');
+  if(q.length < 2){ rows.innerHTML = ''; return; }
+  findT = setTimeout(async () => {
+    try{
+      const list = await searchCards(q, 8);
+      rows.innerHTML = '';
+      if(!list.length){ rows.innerHTML = '<p class="empty-note">No cards match that name.</p>'; return; }
+      list.forEach(c => {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'rowbtn';
+        b.innerHTML = `${c.img ? `<img src="${esc(c.img)}" alt="" loading="lazy">` : '<span></span>'}<span>${esc(c.name)}<small>${esc(metaLine(c))}</small></span>`;
+        b.onclick = () => showCard(c);
+        rows.appendChild(b);
+      });
+    }catch(err){
+      rows.innerHTML = `<p class="empty-note">Could not reach the card database: ${esc(err.message)}</p>`;
+    }
+  }, 320);
+});
+
+/* ---------- wiring ---------- */
+$('#nameIn').value = me.name;
+$('#qualSel').value = cfg.quality;
+$('#scanSize').value = cfg.scan;
+$('#autoShare').checked = cfg.autoShare;
+const hashCode = (location.hash || '').replace('#', '').toUpperCase().slice(0, 5);
+if(hashCode) $('#codeIn').value = hashCode;
+
+$('#camBtn').onclick = async () => {
+  try{ await openCamera(); }catch(e){ $('#lobbyMsg').textContent = e.message || 'Could not open the camera.'; toast($('#lobbyMsg').textContent); }
+};
+$('#camSel').onchange = async e => { cam.deviceId = e.target.value; store.set('dev', cam.deviceId); try{ await openCamera(); }catch(err){ toast('Could not switch camera.'); } };
+$('#qualSel').onchange = async e => { cfg.quality = e.target.value; store.set('q', cfg.quality); if(cam.stream){ try{ await openCamera(); }catch(err){ toast('Could not change quality.'); } } };
+$('#micBtn').onclick = e => {
+  cam.mic = !cam.mic; if(cam.audioTrack) cam.audioTrack.enabled = cam.mic;
+  e.target.textContent = cam.mic ? 'Mute mic' : 'Unmute mic'; e.target.setAttribute('aria-pressed', !cam.mic);
+};
+$('#scanSize').oninput = e => { cfg.scan = parseFloat(e.target.value); store.set('scan', cfg.scan); };
+$('#autoShare').onchange = e => { cfg.autoShare = e.target.checked; store.set('auto', cfg.autoShare ? '1' : '0'); };
+
+$('#startTable').onclick = () => enterTable(newCode(), true);
+$('#joinTable').onclick = () => {
+  const code = $('#codeIn').value.trim().toUpperCase();
+  if(code.length !== 5){ $('#lobbyMsg').textContent = 'Enter the five-character table code.'; return; }
+  enterTable(code, false);
+};
+$('#codeIn').addEventListener('keydown', e => { if(e.key === 'Enter') $('#joinTable').click(); });
+$('#soloBtn').onclick = async () => {
+  me.name = $('#nameIn').value.trim() || 'Player'; store.set('name', me.name);
+  if(!cam.stream){ try{ await openCamera(); }catch(e){ toast('Camera is off. You can still track life and search cards.'); } }
+  showTable();
+};
+$('#leaveBtn').onclick = leaveTable;
+$('#copyCode').onclick = async () => {
+  try{ await navigator.clipboard.writeText(net.code); toast('Table code copied.'); }catch(e){ toast('Table code: ' + net.code); }
+};
+window.addEventListener('beforeunload', cleanupNet);
+})();
+</script>
+</body>
+</html>
