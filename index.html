@@ -170,8 +170,8 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
         <button class="btn" id="camBtn">Turn on camera</button>
         <select id="camSel" aria-label="Camera" hidden></select>
         <select id="qualSel" aria-label="Video quality">
-          <option value="1080">1080p (sharper cards)</option>
-          <option value="720">720p (lighter)</option>
+          <option value="720">720p (lighter, default)</option>
+          <option value="1080">1080p (sharper card reads)</option>
         </select>
       </div>
     </div>
@@ -272,7 +272,7 @@ const cfg = {
   autoShare: store.get('auto', '1') === '1',
   autoDetect: store.get('detect', '1') === '1',
   allCams: store.get('allcams', '0') === '1',
-  quality: store.get('q', '1080')
+  quality: store.get('q2', '720')
 };
 
 /* ---------- player state ---------- */
@@ -310,7 +310,7 @@ async function openCamera(){
   }
   stopCamera();
   const dims = cfg.quality === '1080' ? { width: { ideal: 1920 }, height: { ideal: 1080 } } : { width: { ideal: 1280 }, height: { ideal: 720 } };
-  const video = { ...dims, frameRate: { ideal: 30 } };
+  const video = { ...dims, frameRate: { ideal: 24 } };
   if(cam.deviceId) video.deviceId = { ideal: cam.deviceId };
   let s;
   try{
@@ -543,7 +543,7 @@ function dragEnd(t, e){
   const x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), y0 = Math.min(a[1], b[1]), y1 = Math.max(a[1], b[1]);
   setDrawing(null);
   if(x1 - x0 < 24 || y1 - y0 < 24){ drawOverlay(t); return; }
-  readQuad(t, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], true);
+  readQuad(t, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
 }
 
 /* ---------- networking (PeerJS mesh, up to 4 players) ---------- */
@@ -571,8 +571,21 @@ function setupConn(conn){
   conn.on('close', () => dropPlayer(conn.peer));
   conn.on('error', () => dropPlayer(conn.peer));
 }
+function capSenders(call){
+  const pc = call.peerConnection; if(!pc) return;
+  pc.getSenders().forEach(async s => {
+    if(!s.track || s.track.kind !== 'video') return;
+    try{
+      const p = s.getParameters(); if(!p.encodings || !p.encodings.length) p.encodings = [{}];
+      p.encodings[0].maxBitrate = 1200000; p.encodings[0].maxFramerate = 24;
+      p.encodings[0].scaleResolutionDownBy = cfg.quality === '1080' ? 1.5 : 1;
+      await s.setParameters(p);
+    }catch(e){}
+  });
+}
 function wireCall(call){
   net.calls.set(call.peer, call);
+  setTimeout(() => capSenders(call), 1500);
   call.on('stream', s => { const t = ensureTile(call.peer); t.video.srcObject = s; t.video.play().catch(() => {}); });
   call.on('close', () => dropPlayer(call.peer));
 }
@@ -788,104 +801,76 @@ function renderOnTable(){
 function onTableSet(key, meta, by, score){ onTable.set(key, { meta, by, score }); renderOnTable(); }
 function onTableDel(key){ if(onTable.delete(key)) renderOnTable(); }
 
-/* ---------- card library (prebuilt files in ./library) ---------- */
-let lib = { n: 0, M: new Float32Array(0), meta: [], ek: [], ck: [] };
+/* ---------- card engine (runs in a background worker) ---------- */
+let lib = { n: 0, unique: 0 };
+const eng = { worker: null, libOk: false, cvOk: false, seq: 0, pending: new Map() };
 function setLibUI(text, good){
   const st = $('#libStatus'); st.textContent = text; st.classList.toggle('good', !!good);
 }
-async function loadLibrary(){
-  if(lib.n) return;
-  setLibUI('Loading the card library…');
-  try{
-    const [jr, br] = await Promise.all([fetch('library/library.json'), fetch('library/library.bin')]);
-    if(!jr.ok || !br.ok) throw new Error('library files not found');
-    const u = unpackLibrary(await jr.json(), await br.arrayBuffer());
-    u.meta.forEach(m => { if(m.img && m.img[0] === '/') m.img = cfg.api + m.img; m.url = `${cfg.index}/card/${m.slug}`; });
-    lib = { n: u.n, M: u.M, meta: u.meta, ek: u.meta.map(elemKey), ck: u.meta.map(costKey) };
-    setLibUI(`${new Set(u.meta.map(m => m.slug)).size.toLocaleString()} cards ready to recognize.`, true);
-  }catch(e){
-    setLibUI('Card library not found (' + (e.message || e) + '). Generate it with the GitHub Action or tools/build-library.mjs, and open this page over http, not as a file.');
-  }
-}
-
-/* ---------- OpenCV card detector ---------- */
-const engine = { cv: 'idle', loading: null };
 function setEngineUI(s){ $('#engineStatus').textContent = s; }
-async function loadCV(){
-  if(engine.cv === 'ready') return true;
-  if(engine.loading) return engine.loading;
-  engine.cv = 'loading'; setEngineUI('Loading the card finder (about 10 MB, first time only)…');
-  engine.loading = (async () => {
-    try{
-      await loadScript('https://docs.opencv.org/4.8.0/opencv.js');
-      let c = window.cv;
-      if(c && typeof c.then === 'function'){ c = await c; window.cv = c; }
-      if(!(c && c.Mat)){
-        await new Promise((res, rej) => { const to = setTimeout(() => rej(new Error('timed out')), 60000); window.cv.onRuntimeInitialized = () => { clearTimeout(to); res(); }; });
-      }
-      engine.cv = 'ready'; setEngineUI('Card finder ready.'); return true;
-    }catch(e){
-      engine.cv = 'failed'; setEngineUI('Card finder did not load (' + (e.message || e) + '). Use Draw box to read cards by hand.'); return false;
+function startEngine(){
+  if(eng.worker) return;
+  try{ eng.worker = new Worker('worker.js'); }
+  catch(e){ setLibUI('Could not start the background reader (' + (e.message || e) + '). Open this page over http, not as a file.'); return; }
+  setLibUI('Loading the card library…');
+  if(cfg.autoDetect) setEngineUI('Loading the card finder (about 10 MB, first time only)…');
+  eng.worker.onmessage = ev => {
+    const m = ev.data;
+    if(m.type === 'lib'){
+      if(m.error) setLibUI('Card library not found (' + m.error + '). Generate it with the GitHub Action or tools/build-library.mjs.');
+      else { lib.n = m.n; lib.unique = m.unique; eng.libOk = true; setLibUI(`${m.unique.toLocaleString()} cards ready to recognize.`, true); }
+    }else if(m.type === 'cv'){
+      eng.cvOk = m.ok;
+      setEngineUI(m.ok ? 'Card finder ready.' : 'Card finder did not load (' + m.error + '). Use Draw box to read cards by hand.');
+    }else if(m.type === 'result'){
+      const p = eng.pending.get(m.id); if(p){ eng.pending.delete(m.id); p(m); }
     }
-  })();
-  return engine.loading;
+  };
+  eng.worker.onerror = e => setEngineUI('Background reader error: ' + (e.message || 'unknown'));
+  eng.worker.postMessage({ type: 'init', api: cfg.api, index: cfg.index, loadCV: cfg.autoDetect });
 }
-async function initEngine(){
-  await loadLibrary();
-  if(cfg.autoDetect) loadCV();
+function ask(msg, transfer){
+  return new Promise(res => { const id = ++eng.seq; eng.pending.set(id, res); eng.worker.postMessage({ ...msg, id }, transfer || []); });
 }
+function engineLoadCV(){ if(eng.worker && !eng.cvOk){ setEngineUI('Loading the card finder (about 10 MB, first time only)…'); eng.worker.postMessage({ type: 'loadcv' }); } }
+function initEngine(){ startEngine(); }
 
+/* ---------- frames sent to the worker ---------- */
 const dcanvas = document.createElement('canvas');
 const dctx = dcanvas.getContext('2d', { willReadFrequently: true });
 const scratch = document.createElement('canvas');
 const sctx = scratch.getContext('2d', { willReadFrequently: true });
 
-function detectQuads(video){
-  const cv = window.cv, vw = video.videoWidth, vh = video.videoHeight;
-  const W = 480, H = Math.round(W * vh / vw), s = W / vw;
-  dcanvas.width = W; dcanvas.height = H; dctx.drawImage(video, 0, 0, W, H);
-  const src = cv.imread(dcanvas), gray = new cv.Mat(), blur = new cv.Mat(), edges = new cv.Mat();
-  const kernel = cv.Mat.ones(3, 3, cv.CV_8U), contours = new cv.MatVector(), hier = new cv.Mat();
-  const found = [];
-  try{
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-    cv.GaussianBlur(gray, blur, new cv.Size(5, 5), 0);
-    cv.Canny(blur, edges, 30, 90);
-    cv.dilate(edges, edges, kernel, new cv.Point(-1, -1), 1, cv.BORDER_CONSTANT, cv.morphologyDefaultBorderValue());
-    cv.findContours(edges, contours, hier, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
-    const minA = 0.008 * W * H, maxA = 0.5 * W * H;
-    for(let i = 0; i < contours.size(); i++){
-      const c = contours.get(i);
-      const area = cv.contourArea(c);
-      if(area >= minA && area <= maxA){
-        const hull = new cv.Mat(); cv.convexHull(c, hull, false, true);
-        const peri = cv.arcLength(hull, true);
-        for(const eps of [0.03, 0.05]){
-          const ap = new cv.Mat(); cv.approxPolyDP(hull, ap, eps * peri, true);
-          if(ap.rows === 4){
-            const d = ap.data32S, pts = [[d[0], d[1]], [d[2], d[3]], [d[4], d[5]], [d[6], d[7]]];
-            const q = orderQuad(pts), w = (dist(q[0], q[1]) + dist(q[3], q[2])) / 2, h = (dist(q[0], q[3]) + dist(q[1], q[2])) / 2;
-            const ratio = Math.min(w, h) / Math.max(w, h);
-            if(ratio >= 0.55 && ratio <= 0.9) found.push({ q, area });
-            ap.delete(); break;
-          }
-          ap.delete();
-        }
-        hull.delete();
-      }
-      c.delete();
-    }
-  }finally{
-    [src, gray, blur, edges, kernel, contours, hier].forEach(m => m.delete());
+// Small frame for card finding, plus a cheap "did anything move?" signal.
+function grabSmall(t){
+  const v = t.video, W = 480, H = Math.round(W * v.videoHeight / v.videoWidth);
+  dcanvas.width = W; dcanvas.height = H; dctx.drawImage(v, 0, 0, W, H);
+  const id = dctx.getImageData(0, 0, W, H), d = id.data;
+  const sig = new Uint8Array(Math.ceil(W / 8) * Math.ceil(H / 8)); let n = 0;
+  for(let y = 0; y < H; y += 8) for(let x = 0; x < W; x += 8){ const p = (y * W + x) * 4; sig[n++] = (d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29) >> 8; }
+  let changed = 1;
+  if(t.prevSig && t.prevSig.length === sig.length){
+    let c = 0; for(let i = 0; i < sig.length; i++) if(Math.abs(sig[i] - t.prevSig[i]) > 25) c++;
+    changed = c / sig.length;
   }
-  found.sort((a, b) => b.area - a.area);
-  const kept = [];
-  for(const f of found){
-    const cx = f.q.reduce((a, p) => a + p[0], 0) / 4, cy = f.q.reduce((a, p) => a + p[1], 0) / 4;
-    if(kept.every(k => Math.hypot(cx - k.cx, cy - k.cy) > 0.25 * Math.sqrt(k.area))) kept.push({ ...f, cx, cy });
-    if(kept.length >= 6) break;
-  }
-  return kept.map(k => k.q.map(p => [p[0] / s, p[1] / s]));
+  t.prevSig = sig;
+  return { buf: d.buffer, w: W, h: H, s: W / v.videoWidth, still: changed < 0.004 };
+}
+function grabQuad(video, quad){
+  const vw = video.videoWidth, vh = video.videoHeight, m = 6;
+  const xs = quad.map(p => p[0]), ys = quad.map(p => p[1]);
+  const x0 = Math.max(0, Math.floor(Math.min(...xs)) - m), y0 = Math.max(0, Math.floor(Math.min(...ys)) - m);
+  const x1 = Math.min(vw, Math.ceil(Math.max(...xs)) + m), y1 = Math.min(vh, Math.ceil(Math.max(...ys)) + m);
+  const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
+  scratch.width = w; scratch.height = h; sctx.drawImage(video, x0, y0, w, h, 0, 0, w, h);
+  const id = sctx.getImageData(0, 0, w, h);
+  return { buf: id.data.buffer, w, h, quad: quad.map(p => [p[0] - x0, p[1] - y0]) };
+}
+async function readCardAsync(video, quad){
+  const q = portraitQuad(quad.map(p => p.slice()));
+  const g = grabQuad(video, q);
+  const m = await ask({ type: 'recognize', buf: g.buf, w: g.w, h: g.h, quad: g.quad }, [g.buf]);
+  return m.res;
 }
 
 /* ---------- tracking and reading cards ---------- */
@@ -906,55 +891,37 @@ function updateTracks(t, quads, vh){
     }
   });
   tr.forEach((k, i) => { if(!used.has(i)) k.missed++; });
-  const gone = tr.filter(k => k.missed >= 4);
-  gone.forEach(k => onTableDel(t.id + ':' + k.id));
+  tr.filter(k => k.missed >= 4).forEach(k => onTableDel(t.id + ':' + k.id));
   t.tracks = tr.filter(k => k.missed < 4);
 }
 
-function grabQuad(video, quad){
-  const vw = video.videoWidth, vh = video.videoHeight, m = 6;
-  const xs = quad.map(p => p[0]), ys = quad.map(p => p[1]);
-  const x0 = Math.max(0, Math.floor(Math.min(...xs)) - m), y0 = Math.max(0, Math.floor(Math.min(...ys)) - m);
-  const x1 = Math.min(vw, Math.ceil(Math.max(...xs)) + m), y1 = Math.min(vh, Math.ceil(Math.max(...ys)) + m);
-  const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
-  scratch.width = w; scratch.height = h; sctx.drawImage(video, x0, y0, w, h, 0, 0, w, h);
-  const id = sctx.getImageData(0, 0, w, h);
-  return { img: { width: w, height: h, data: id.data }, quad: quad.map(p => [p[0] - x0, p[1] - y0]) };
-}
-function readCardFrom(video, quad){
-  const q = portraitQuad(quad.map(p => p.slice()));
-  const { img, quad: local } = grabQuad(video, q);
-  return recognize(warp(img, local, 2), lib);
-}
-
-async function readQuad(t, quad, manual){
-  if(!lib.n){ toast('Build the card library first. Recognition compares cards against it.'); return; }
+async function readQuad(t, quad){
+  if(!eng.libOk){ toast('The card library has not loaded yet.'); return; }
   if(!t.video.videoWidth){ toast('Video is not ready yet.'); return; }
-  const k = manual ? null : null;
-  const res = readCardFrom(t.video, quad);
+  $('#scanStatus').textContent = 'Reading…';
+  const res = await readCardAsync(t.video, quad);
   if(!res || !res.list.length){ $('#scanStatus').textContent = 'Could not read that card.'; return; }
   const by = (players.get(t.id) || {}).name || 'Player';
-  showReading(res, true);
-  const top = res.list[0], ok = top.score >= cfg.strict;
+  showReading(res);
+  const top = res.list[0];
   showCard(top.meta);
-  if(ok){
+  if(top.score >= cfg.strict){
     onTableSet(t.id + ':m' + Date.now(), top.meta, by, top.score);
     if(cfg.autoShare && t.id === 'me') shareCard(top.meta);
   }
 }
 
-function showReading(res, manual){
+function showReading(res){
   const top = res.list[0], pct = Math.round(top.score * 100);
   const th = $('#scanThumb'); th.hidden = false;
   const g = th.getContext('2d'), tmp = document.createElement('canvas'); tmp.width = CW; tmp.height = CH;
-  tmp.getContext('2d').putImageData(new ImageData(res.img.data, CW, CH), 0, 0);
+  tmp.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(res.img.data), CW, CH), 0, 0);
   g.drawImage(tmp, 0, 0, th.width, th.height);
   g.lineWidth = 1.5;
   [[REG.tl, '#8fd19e'], [REG.tr, '#8fd19e'], [REG.art, '#d6ab52']].forEach(([r, col]) => {
     g.strokeStyle = col; g.strokeRect(r[0] * th.width, r[1] * th.height, (r[2] - r[0]) * th.width, (r[3] - r[1]) * th.height);
   });
-  const agree = [];
-  const mk = elemKey(top.meta), ck = costKey(top.meta);
+  const agree = [], mk = elemKey(top.meta), ck = costKey(top.meta);
   if(res.element) agree.push(res.element.key === mk ? `element ${title(mk)}` : `element read as ${title(res.element.key)}`);
   if(res.cost) agree.push(res.cost.key === ck ? costText(ck) : `cost read as ${costText(res.cost.key)}`);
   const st = $('#scanStatus');
@@ -970,10 +937,10 @@ function showReading(res, manual){
   });
 }
 
-function recognizeTrack(t, k){
+async function recognizeTrack(t, k){
   k.attempts++; k.recCenter = k.center.slice();
-  const res = readCardFrom(t.video, k.quad);
-  if(!res || !res.list.length) return;
+  const res = await readCardAsync(t.video, k.quad);
+  if(!res || !res.list.length || !t.tracks.includes(k)) return;
   const top = res.list[0], second = res.list[1];
   const ok = top.score >= cfg.strict && (!second || top.score - second.score >= 0.015);
   if(!ok){ k.votes = []; return; }
@@ -983,37 +950,45 @@ function recognizeTrack(t, k){
     k.confirmed = { meta: top.meta, score: top.score };
     const by = (players.get(t.id) || {}).name || 'Player';
     onTableSet(t.id + ':' + k.id, top.meta, by, top.score);
-    showReading(res, false);
-    showCard(top.meta);
+    showReading(res); showCard(top.meta);
     if(cfg.autoShare && t.id === 'me') shareCard(top.meta);
   }else if(k.confirmed && k.confirmed.meta.slug === top.meta.slug){
     k.confirmed.score = top.score;
   }
 }
 
+// Light-weight loop: skips work when nothing on the table has moved.
 let busy = false;
 async function tick(){
-  if(busy || document.hidden || !cfg.autoDetect || $('#tableView').hidden || !lib.n) return;
-  if(engine.cv !== 'ready'){ if(engine.cv === 'idle') loadCV(); return; }
+  if(busy || document.hidden || !cfg.autoDetect || $('#tableView').hidden) return;
+  if(!eng.worker || !eng.libOk || !eng.cvOk) return;
   busy = true;
   try{
     for(const t of tiles.values()){
       if(t.id !== 'me' && !cfg.allCams) continue;
       const v = t.video; if(!v.videoWidth || v.readyState < 2) continue;
-      const quads = detectQuads(v);
+      const f = grabSmall(t);
+      if(f.still && t.tracks.length && t.tracks.every(k => k.confirmed || k.attempts >= 5)) continue; // idle
+      let quads;
+      if(f.still && t.lastQuads) quads = t.lastQuads;
+      else{
+        const m = await ask({ type: 'detect', buf: f.buf, w: f.w, h: f.h }, [f.buf]);
+        quads = (m.quads || []).map(q => q.map(p => [p[0] / f.s, p[1] / f.s]));
+        t.lastQuads = quads;
+      }
       updateTracks(t, quads, v.videoHeight);
       for(const k of t.tracks){
         if(k.missed || k.stable < 1) continue;
         const moved = k.recCenter ? dist(k.center, k.recCenter) > 0.03 * v.videoHeight : false;
         if(moved){ k.confirmed = null; k.votes = []; k.attempts = 0; onTableDel(t.id + ':' + k.id); }
-        if(!k.confirmed && (k.attempts < 5 || moved)){ recognizeTrack(t, k); break; }
+        if(!k.confirmed && (k.attempts < 5 || moved)){ await recognizeTrack(t, k); break; }
       }
       drawOverlay(t);
     }
   }catch(e){ console.warn('detect', e); }
   finally{ busy = false; }
 }
-setInterval(tick, 500);
+setInterval(tick, 600);
 
 /* ---------- manual name search ---------- */
 let findT;
@@ -1052,7 +1027,7 @@ $('#camBtn').onclick = async () => {
   try{ await openCamera(); }catch(e){ $('#lobbyMsg').textContent = e.message || 'Could not open the camera.'; toast($('#lobbyMsg').textContent); }
 };
 $('#camSel').onchange = async e => { cam.deviceId = e.target.value; store.set('dev', cam.deviceId); try{ await openCamera(); }catch(err){ toast('Could not switch camera.'); } };
-$('#qualSel').onchange = async e => { cfg.quality = e.target.value; store.set('q', cfg.quality); if(cam.stream){ try{ await openCamera(); }catch(err){ toast('Could not change quality.'); } } };
+$('#qualSel').onchange = async e => { cfg.quality = e.target.value; store.set('q2', cfg.quality); if(cam.stream){ try{ await openCamera(); }catch(err){ toast('Could not change quality.'); } } };
 $('#micBtn').onclick = e => {
   cam.mic = !cam.mic; if(cam.audioTrack) cam.audioTrack.enabled = cam.mic;
   e.target.textContent = cam.mic ? 'Mute mic' : 'Unmute mic'; e.target.setAttribute('aria-pressed', !cam.mic);
@@ -1061,7 +1036,7 @@ $('#strict').oninput = e => { cfg.strict = parseFloat(e.target.value); store.set
 $('#autoShare').onchange = e => { cfg.autoShare = e.target.checked; store.set('auto', cfg.autoShare ? '1' : '0'); };
 $('#autoDetect').onchange = e => {
   cfg.autoDetect = e.target.checked; store.set('detect', cfg.autoDetect ? '1' : '0');
-  if(cfg.autoDetect) loadCV(); else tiles.forEach(t => { t.tracks.forEach(k => onTableDel(t.id + ':' + k.id)); t.tracks = []; drawOverlay(t); });
+  if(cfg.autoDetect) engineLoadCV(); else tiles.forEach(t => { t.tracks.forEach(k => onTableDel(t.id + ':' + k.id)); t.tracks = []; drawOverlay(t); });
 };
 $('#allCams').onchange = e => { cfg.allCams = e.target.checked; store.set('allcams', cfg.allCams ? '1' : '0'); };
 

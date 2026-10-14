@@ -3,7 +3,7 @@
 Webcam table for Grand Archive with automatic card recognition and champion life tracking.
 
 ## Put it on GitHub Pages
-1. Create a repository and upload everything in this folder, including the hidden `.github` folder and the `tools` folder.
+1. Create a repository and upload everything in this folder, including `index.html`, `algo.js`, `worker.js`, the `tools` folder and the hidden `.github` folder (if the web uploader skips it, create `.github/workflows/library.yml` with Add file > Create new file).
 2. Settings > Pages > Deploy from branch > `main`, folder `/ (root)`.
 3. Actions > **Build card library** > Run workflow. It downloads the card art once, writes `library/library.json` and `library/library.bin` into the repo, and re-runs weekly to pick up new cards.
 4. Open the Pages URL. The page loads the finished library in a second or two. Nothing is built in the browser.
