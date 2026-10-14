@@ -1,6 +1,6 @@
 # Archive Table
 
-Webcam table for Grand Archive with automatic card recognition and champion life tracking.
+Webcam table for Grand Archive with automatic card recognition.
 
 ## Put it on GitHub Pages
 1. Create a repository and upload everything in this folder, including `index.html`, `algo.js`, `worker.js`, the `tools` folder and the hidden `.github` folder (if the web uploader skips it, create `.github/workflows/library.yml` with Add file > Create new file).

@@ -145,40 +145,35 @@ function vote(idxs, scores, meta, keyFn){
   return best && tot > 0 ? { key: best.k, share: best.w / tot } : null;
 }
 // lib: { n, M (Float32Array n*DIM), meta[], ek[], ck[] }
+// Fast path: shortlist by art, then check corner symbols and art alignment on the shortlist only.
+const SHORTLIST = 240;
 function recognize(img0, lib){
   const N = lib.n, M = lib.M; if(!N) return null;
-  const shifts5 = [[0, 0], [0.012, 0], [-0.012, 0], [0, 0.012], [0, -0.012]];
-  let pick = null;
-  for(const img of [img0, rot180(img0)]){
-    const vs = shifts5.map(([dx, dy]) => describe(img, dx, dy));
-    const tl = new Float32Array(N), tr = new Float32Array(N);
-    for(let i = 0; i < N; i++){
-      const base = i * DIM; let a = -2, b = -2;
-      for(const q of vs){ const s1 = cornerScore(M, base, q, 'tl'), s2 = cornerScore(M, base, q, 'tr'); if(s1 > a) a = s1; if(s2 > b) b = s2; }
-      tl[i] = a; tr[i] = b;
-    }
-    const avg = arr => { const t = topK(arr, 5); return t.reduce((s, i) => s + arr[i], 0) / t.length; };
-    const quality = avg(tl) + avg(tr);
-    if(!pick || quality > pick.quality) pick = { img, quality, tl, tr };
+  // 1. cheap art scan of every card, in both orientations
+  const imgs = [img0, rot180(img0)], pre = [], q0 = [];
+  let bestO = 0, bestTop = -2;
+  for(let oi = 0; oi < 2; oi++){
+    const q = describe(imgs[oi], 0, 0), s = new Float32Array(N); let top = -2;
+    for(let i = 0; i < N; i++){ const v = artScore(M, i * DIM, q); s[i] = v; if(v > top) top = v; }
+    pre.push(s); q0.push(q);
+    if(top > bestTop){ bestTop = top; bestO = oi; }
+    if(oi === 0 && top > 0.8) break; // clearly upright, skip the flipped check
   }
-  const { tl, tr, img } = pick;
-  const element = vote(topK(tr, 30), tr, lib.meta, i => lib.ek[i]);
-  const cost = vote(topK(tl, 30), tl, lib.meta, i => lib.ck[i]);
-  const filt = (useEl, useCo) => { const out = []; for(let i = 0; i < N; i++){
-    if(useEl && lib.ek[i] !== element.key) continue; if(useCo && lib.ck[i] !== cost.key) continue; out.push(i); } return out; };
-  const elOk = element && element.share >= 0.5, coOk = cost && cost.share >= 0.5;
-  let cand = filt(elOk, coOk), mode = 'element + cost';
-  if(cand.length < 3){ cand = filt(elOk, false); mode = 'element'; }
-  if(cand.length < 3){ cand = filt(false, coOk); mode = 'cost'; }
-  if(cand.length < 3){ cand = filt(false, false); mode = 'all cards'; }
-  if(mode === 'element + cost' && !elOk) mode = 'cost'; // (defensive labels)
-  // Symbols can be misread, so also keep the cards whose corners look most alike.
-  const comb = new Float32Array(N); for(let i = 0; i < N; i++) comb[i] = tl[i] + tr[i];
-  const keep = new Set(cand); for(const i of topK(comb, Math.min(N, 80))) keep.add(i);
-  cand = [...keep];
+  const img = imgs[bestO], idx = topK(pre[bestO], Math.min(N, SHORTLIST));
+  // 2. corner symbols (cost top-left, element top-right) on the shortlist
+  const shifts5 = [[0, 0], [0.012, 0], [-0.012, 0], [0, 0.012], [0, -0.012]].map(([dx, dy]) => describe(img, dx, dy));
+  const tl = new Float32Array(N), tr = new Float32Array(N);
+  for(const i of idx){
+    const base = i * DIM; let a = -2, b = -2;
+    for(const q of shifts5){ const s1 = cornerScore(M, base, q, 'tl'), s2 = cornerScore(M, base, q, 'tr'); if(s1 > a) a = s1; if(s2 > b) b = s2; }
+    tl[i] = a; tr[i] = b;
+  }
+  const element = vote(topK(tr, Math.min(30, idx.length)), tr, lib.meta, i => lib.ek[i]);
+  const cost = vote(topK(tl, Math.min(30, idx.length)), tl, lib.meta, i => lib.ck[i]);
+  // 3. art with small alignment shifts, combined with both corners
   const shifts9 = []; for(const dy of [-0.012, 0, 0.012]) for(const dx of [-0.012, 0, 0.012]) shifts9.push(describe(img, dx, dy));
   const scored = [];
-  for(const i of cand){
+  for(const i of idx){
     const base = i * DIM; let a = -2;
     for(const q of shifts9){ const s = artScore(M, base, q); if(s > a) a = s; }
     scored.push({ i, art: a, tl: tl[i], tr: tr[i], score: 0.6 * a + 0.2 * tl[i] + 0.2 * tr[i] });
@@ -186,7 +181,8 @@ function recognize(img0, lib){
   scored.sort((a, b) => b.score - a.score);
   const seen = new Set(), list = [];
   for(const s of scored){ const slug = lib.meta[s.i].slug; if(seen.has(slug)) continue; seen.add(slug); list.push({ meta: lib.meta[s.i], ...s }); if(list.length >= 5) break; }
-  return { img, list, element: elOk ? element : null, cost: coOk ? cost : null, candidates: cand.length, mode, flipped: img !== img0 };
+  return { img, list, element: element && element.share >= 0.5 ? element : null, cost: cost && cost.share >= 0.5 ? cost : null,
+    candidates: idx.length, mode: 'art shortlist', flipped: bestO === 1 };
 }
 
 // ---- compact library file format: per card 6 float32 scales + 1680 int8 values ----

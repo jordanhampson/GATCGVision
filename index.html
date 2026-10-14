@@ -78,19 +78,6 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 .who{display:flex;flex-direction:column;min-width:0;flex:1}
 .who strong{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .who span{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lifebox{display:flex;align-items:center;gap:6px}
-.num{font-family:var(--serif);font-weight:700;font-size:clamp(38px,5.2vw,62px);line-height:1;min-width:2ch;text-align:center;font-variant-numeric:tabular-nums}
-.num.flash{animation:flash .5s}
-@keyframes flash{0%{color:var(--brass)}100%{color:inherit}}
-.adj{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:rgba(7,19,18,.75);font-weight:600;font-size:13px;padding:0}
-.adj:hover{border-color:var(--brass)}
-.remote .adj,.remote .editable{display:none}
-.sub{display:flex;flex-direction:column;gap:3px;align-items:flex-end;font-size:12.5px;color:var(--muted)}
-.sub .row{display:flex;align-items:center;gap:6px}
-.sub input{width:52px;padding:2px 6px;font-size:12.5px;border-radius:6px}
-.sub .lv{color:var(--ink);font-weight:600;min-width:1ch;text-align:center}
-.sub button{width:22px;height:22px;border-radius:50%;border:1px solid var(--line);background:rgba(7,19,18,.75);padding:0;line-height:1;font-size:13px}
-.down::after{content:"Champion defeated";position:absolute;inset:0;display:grid;place-items:center;background:rgba(40,8,4,.62);font-family:var(--serif);font-size:clamp(20px,3vw,34px);font-weight:700;pointer-events:none}
 .callout{position:absolute;left:12px;top:12px;width:min(34%,190px);border-radius:10px;overflow:hidden;border:2px solid var(--brass);background:#071312;box-shadow:0 8px 24px rgba(0,0,0,.5)}
 .callout img{display:block;width:100%}
 .callout span{display:block;padding:3px 8px;font-size:12px;font-weight:600;background:var(--brass);color:var(--brass-ink)}
@@ -117,9 +104,7 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 .rowbtn:hover{border-color:var(--muted)}
 .rowbtn img{width:34px;aspect-ratio:5/7;object-fit:cover;border-radius:3px;background:#071312}
 .rowbtn small{display:block;color:var(--muted);font-size:12px}
-.feedlist,.loglist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;font-size:13.5px;max-height:150px;overflow:auto}
-.loglist li{color:var(--muted)}
-.loglist b{color:var(--ink);font-weight:600}
+.feedlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;font-size:13.5px;max-height:150px;overflow:auto}
 .feedlist button{display:flex;gap:8px;align-items:center;width:100%;text-align:left;border:0;background:none;padding:2px 0}
 .feedlist img{width:26px;aspect-ratio:5/7;object-fit:cover;border-radius:3px}
 .feedlist small{color:var(--muted)}
@@ -131,7 +116,6 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
   #grid[data-n="2"],#grid[data-n="3"],#grid[data-n="4"]{grid-template-columns:1fr}
   .cardview .face{grid-template-columns:104px 1fr}
 }
-@media (prefers-reduced-motion:reduce){.num.flash{animation:none}}
 </style>
 </head>
 <body>
@@ -146,7 +130,7 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 <main id="lobby">
   <section>
     <h1>Play Grand Archive over webcam</h1>
-    <p class="lead">Point a camera at your playmat, share a table code, and track champion life while your cards are recognized as you play them.</p>
+    <p class="lead">Point a camera at your playmat, and share a table code. Your cards are recognized as you play them.</p>
     <div class="field">
       <label for="nameIn">Your name</label>
       <input type="text" id="nameIn" maxlength="20" autocomplete="nickname">
@@ -229,10 +213,6 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
       <ul class="feedlist" id="sharedList"><li class="empty-note">Nothing shown yet.</li></ul>
     </section>
 
-    <section class="card">
-      <h3>Life log</h3>
-      <ul class="loglist" id="logList"><li>No changes yet.</li></ul>
-    </section>
   </aside>
 </main>
 
@@ -276,11 +256,10 @@ const cfg = {
 };
 
 /* ---------- player state ---------- */
-const me = { id: 'me', name: store.get('name', ''), life: parseInt(store.get('life', '20'), 10) || 20, dmg: 0, level: 0, champ: '' };
+const me = { id: 'me', name: store.get('name', '') };
 const players = new Map([['me', me]]);
 const tiles = new Map();
-const remaining = p => Math.max(0, (p.life || 0) - (p.dmg || 0));
-const snap = p => ({ name: p.name, life: p.life, dmg: p.dmg, level: p.level, champ: p.champ });
+const snap = p => ({ name: p.name });
 
 /* ---------- camera ---------- */
 const cam = { stream: null, videoTrack: null, audioTrack: null, deviceId: store.get('dev', ''), mic: true };
@@ -375,28 +354,12 @@ function ensureTile(id){
       <button class="btn rot" type="button" aria-pressed="false" title="Turn this view upside down (overhead cameras)">Rotate view</button>
     </div>
     <div class="hud">
-      <div class="who"><strong class="nm"></strong><span class="champ"></span></div>
-      <div class="lifebox">
-        <button class="adj" data-life="-5" type="button" aria-label="Lose 5 life">−5</button>
-        <button class="adj" data-life="-1" type="button" aria-label="Lose 1 life">−1</button>
-        <output class="num" aria-live="polite">20</output>
-        <button class="adj" data-life="1" type="button" aria-label="Gain 1 life">+1</button>
-        <button class="adj" data-life="5" type="button" aria-label="Gain 5 life">+5</button>
-      </div>
-      <div class="sub">
-        <div class="row">Damage <b class="dmg">0</b></div>
-        <div class="row">Champion life <input class="maxlife editable" type="number" min="1" max="99" aria-label="Champion life"><span class="maxview"></span></div>
-        <div class="row">Level
-          <button class="editable" data-lvl="-1" type="button" aria-label="Level down">−</button>
-          <span class="lv">0</span>
-          <button class="editable" data-lvl="1" type="button" aria-label="Level up">+</button>
-        </div>
-      </div>
-    </div>`;
+      <div class="who"><strong class="nm"></strong></div>
+    </div>    </div>`;
   const t2 = {
     id, root, rot: false, tracks: [], tid: 0, drag: null,
     video: root.querySelector('video'), feed: root.querySelector('.feed'), overlay: root.querySelector('.overlay'),
-    hint: root.querySelector('.hint'), callout: root.querySelector('.callout'), num: root.querySelector('.num')
+    hint: root.querySelector('.hint'), callout: root.querySelector('.callout')
   };
   t2.video.muted = mine; t2.video.playsInline = true;
   root.addEventListener('click', e => onTileClick(t2, e));
@@ -405,11 +368,6 @@ function ensureTile(id){
   t2.feed.addEventListener('pointerup', e => dragEnd(t2, e));
   t2.feed.addEventListener('pointercancel', () => { t2.drag = null; drawOverlay(t2); });
   new ResizeObserver(() => drawOverlay(t2)).observe(t2.feed);
-  root.querySelector('.maxlife').addEventListener('change', e => {
-    if(!mine) return;
-    const v = Math.max(1, Math.min(99, parseInt(e.target.value, 10) || me.life));
-    me.life = v; store.set('life', v); commit();
-  });
   tiles.set(id, t2);
   $('#grid').appendChild(root);
   $('#grid').dataset.n = Math.min(4, tiles.size);
@@ -421,31 +379,9 @@ function removeTile(id){
   t.root.remove(); tiles.delete(id); players.delete(id);
   $('#grid').dataset.n = Math.min(4, Math.max(1, tiles.size));
 }
-function renderTile(id, flash){
+function renderTile(id){
   const p = players.get(id), t = tiles.get(id); if(!p || !t) return;
-  const r = remaining(p);
   t.root.querySelector('.nm').textContent = p.name || 'Player';
-  t.root.querySelector('.champ').textContent = p.champ || 'No champion set';
-  const prev = t.num.textContent;
-  t.num.textContent = r;
-  if(flash && String(r) !== prev){ t.num.classList.remove('flash'); void t.num.offsetWidth; t.num.classList.add('flash'); }
-  t.root.querySelector('.dmg').textContent = p.dmg;
-  const ml = t.root.querySelector('.maxlife');
-  if(document.activeElement !== ml) ml.value = p.life;
-  t.root.querySelector('.maxview').textContent = id === 'me' ? '' : '/ ' + p.life;
-  if(id !== 'me') ml.style.display = 'none';
-  t.root.querySelector('.lv').textContent = p.level;
-  t.root.classList.toggle('down', r === 0);
-}
-function commit(){
-  renderTile('me', true);
-  broadcast({ t: 'state', s: snap(me) });
-}
-function addLog(html){
-  const ul = $('#logList');
-  if(ul.firstElementChild && ul.firstElementChild.textContent === 'No changes yet.') ul.innerHTML = '';
-  const li = document.createElement('li'); li.innerHTML = html; ul.prepend(li);
-  while(ul.children.length > 40) ul.lastChild.remove();
 }
 
 /* ---------- tile buttons ---------- */
@@ -456,17 +392,8 @@ function onTileClick(t, e){
   if(btn.classList.contains('rot')){
     t.rot = !t.rot; t.root.classList.toggle('rot', t.rot); btn.setAttribute('aria-pressed', t.rot); drawOverlay(t); return;
   }
-  if(t.id === 'me' && btn.dataset.life){
-    const d = parseInt(btn.dataset.life, 10), before = remaining(me);
-    me.dmg = Math.max(0, me.dmg - d);
-    const after = remaining(me);
-    if(after !== before) addLog(`<b>${esc(me.name || 'You')}</b> ${before} → ${after}`);
-    commit(); return;
-  }
-  if(t.id === 'me' && btn.dataset.lvl){
-    me.level = Math.max(0, Math.min(9, me.level + parseInt(btn.dataset.lvl, 10))); commit();
-  }
 }
+
 function setDrawing(id){
   drawing = id;
   tiles.forEach(t => {
@@ -507,7 +434,7 @@ function drawOverlay(t){
     g.closePath(); g.setLineDash(dash || []); g.lineWidth = width; g.strokeStyle = color; g.stroke(); g.setLineDash([]);
   };
   t.tracks.forEach(k => {
-    if(k.missed > 1) return;
+    if(k.missed > 3) return;
     const ok = !!k.confirmed;
     poly(k.quad, ok ? '#d6ab52' : 'rgba(232,239,233,.8)', ok ? 3 : 2, ok ? null : [6, 5]);
     const label = ok ? `${k.confirmed.meta.name}  ${Math.round(k.confirmed.score * 100)}%` : (k.attempts ? 'Reading…' : '');
@@ -592,7 +519,7 @@ function wireCall(call){
 function dropPlayer(id){
   if(!tiles.has(id) && !net.conns.has(id)) return;
   const p = players.get(id);
-  if(p && p.name) addLog(`<b>${esc(p.name)}</b> left the table`);
+  if(p && p.name) toast(`${p.name} left the table.`);
   const c = net.conns.get(id); net.conns.delete(id); try{ c && c.close(); }catch(e){}
   const k = net.calls.get(id); net.calls.delete(id); try{ k && k.close(); }catch(e){}
   net.members.delete(id);
@@ -603,12 +530,10 @@ function onData(conn, d){
   const id = conn.peer;
   if(d.t === 'state'){
     ensureTile(id);
-    const p = players.get(id) || { id, dmg: 0, life: 20, level: 0, name: '', champ: '' };
-    const before = remaining(p), known = players.has(id);
+    const p = players.get(id) || { id, name: '' }, known = players.has(id);
     Object.assign(p, d.s); players.set(id, p);
-    renderTile(id, true);
-    if(!known) addLog(`<b>${esc(p.name || 'A player')}</b> joined`);
-    else if(remaining(p) !== before) addLog(`<b>${esc(p.name || 'Player')}</b> ${before} → ${remaining(p)}`);
+    renderTile(id);
+    if(!known) toast(`${p.name || 'A player'} joined the table.`);
   }else if(d.t === 'peers' && Array.isArray(d.ids)){
     d.ids.forEach(link);
   }else if(d.t === 'full'){
@@ -673,7 +598,6 @@ function leaveTable(){
   cleanupNet();
   [...tiles.keys()].forEach(id => removeTile(id));
   players.clear(); players.set('me', me);
-  me.dmg = 0; me.level = 0; me.champ = '';
   $('#roomChip').hidden = true; $('#leaveBtn').hidden = true;
   $('#tableView').hidden = true; $('#lobby').hidden = false;
   $('#lobbyCamSlot').appendChild($('#camTools'));
@@ -709,7 +633,6 @@ async function searchCards(q, n = 8){
   const out = (j.data || []).map(c => norm(c));
   cache.set(url, out); return out;
 }
-const isChampion = c => c.types.some(t => /champion/i.test(t));
 const elemKey = m => (m.elements || []).slice().sort().join('/') || 'NONE';
 const costKey = m => m.cost && m.cost.type && m.cost.type !== 'none' ? `${m.cost.type}:${m.cost.value}` : 'none';
 function costText(key){ if(key === 'none') return 'no cost'; const [t, v] = key.split(':'); return `${title(t)} ${v}`; }
@@ -746,17 +669,9 @@ function showCard(c){
     </div>
     <div class="acts">
       <button class="btn small" id="shareBtn" type="button">Show to table</button>
-      ${isChampion(c) ? '<button class="btn small" id="champBtn" type="button">Use as my champion</button>' : ''}
       <a href="${esc(c.url)}" target="_blank" rel="noopener">Open on Index</a>
     </div>`;
   $('#shareBtn').onclick = () => shareCard(c);
-  const cb = $('#champBtn');
-  if(cb) cb.onclick = () => {
-    me.champ = c.name;
-    if(c.life != null) me.life = c.life;
-    if(c.level != null) me.level = c.level;
-    me.dmg = 0; commit(); toast(`${c.name} set as your champion.`);
-  };
 }
 
 /* ---------- shared card feed ---------- */
@@ -843,11 +758,11 @@ const sctx = scratch.getContext('2d', { willReadFrequently: true });
 
 // Small frame for card finding, plus a cheap "did anything move?" signal.
 function grabSmall(t){
-  const v = t.video, W = 480, H = Math.round(W * v.videoHeight / v.videoWidth);
+  const v = t.video, W = 320, H = Math.round(W * v.videoHeight / v.videoWidth);
   dcanvas.width = W; dcanvas.height = H; dctx.drawImage(v, 0, 0, W, H);
   const id = dctx.getImageData(0, 0, W, H), d = id.data;
-  const sig = new Uint8Array(Math.ceil(W / 8) * Math.ceil(H / 8)); let n = 0;
-  for(let y = 0; y < H; y += 8) for(let x = 0; x < W; x += 8){ const p = (y * W + x) * 4; sig[n++] = (d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29) >> 8; }
+  const sig = new Uint8Array(Math.ceil(W / 6) * Math.ceil(H / 6)); let n = 0;
+  for(let y = 0; y < H; y += 6) for(let x = 0; x < W; x += 6){ const p = (y * W + x) * 4; sig[n++] = (d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29) >> 8; }
   let changed = 1;
   if(t.prevSig && t.prevSig.length === sig.length){
     let c = 0; for(let i = 0; i < sig.length; i++) if(Math.abs(sig[i] - t.prevSig[i]) > 25) c++;
@@ -883,16 +798,16 @@ function updateTracks(t, quads, vh){
     if(best >= 0 && bd < maxD){
       const k = tr[best]; used.add(best);
       k.stable = bd < 0.012 * vh ? k.stable + 1 : 0;
-      k.quad = k.quad.map((p, i) => [(p[0] + q[i][0]) / 2, (p[1] + q[i][1]) / 2]);
+      k.quad = k.quad.map((p, i) => [p[0] * 0.4 + q[i][0] * 0.6, p[1] * 0.4 + q[i][1] * 0.6]);
       k.center = centerOf(k.quad); k.missed = 0;
     }else{
-      tr.push({ id: ++t.tid, quad: q, center: c, stable: 0, missed: 0, votes: [], attempts: 0, recCenter: null, confirmed: null });
+      tr.push({ id: ++t.tid, quad: q, center: c, stable: 0, missed: 0, attempts: 0, recCenter: null, confirmed: null, alt: null, nextRead: 0, lastRead: 0 });
       used.add(tr.length - 1);
     }
   });
   tr.forEach((k, i) => { if(!used.has(i)) k.missed++; });
-  tr.filter(k => k.missed >= 4).forEach(k => onTableDel(t.id + ':' + k.id));
-  t.tracks = tr.filter(k => k.missed < 4);
+  tr.filter(k => k.missed >= 8).forEach(k => onTableDel(t.id + ':' + k.id));
+  t.tracks = tr.filter(k => k.missed < 8);
 }
 
 async function readQuad(t, quad){
@@ -926,7 +841,7 @@ function showReading(res){
   if(res.cost) agree.push(res.cost.key === ck ? costText(ck) : `cost read as ${costText(res.cost.key)}`);
   const st = $('#scanStatus');
   st.classList.toggle('good', top.score >= cfg.strict);
-  st.textContent = `${top.meta.name}, ${pct}% match. Corner symbols: ${agree.length ? agree.join(', ') : 'unclear'}. Compared ${res.candidates} of ${lib.n.toLocaleString()} cards${res.flipped ? ' (card was upside down)' : ''}.`
+  st.textContent = `${top.meta.name}, ${pct}% match. Corner symbols: ${agree.length ? agree.join(', ') : 'unclear'}. Checked all ${lib.n.toLocaleString()} cards, compared ${res.candidates} closely${res.flipped ? ' (card was upside down)' : ''}.`
     + (top.score < cfg.strict ? ' Below your strictness setting, so it was not announced.' : '');
   const picks = $('#picks'); picks.innerHTML = '';
   res.list.slice(0, 4).forEach((m, i) => {
@@ -938,57 +853,82 @@ function showReading(res){
 }
 
 async function recognizeTrack(t, k){
-  k.attempts++; k.recCenter = k.center.slice();
+  const now = performance.now();
+  k.attempts++; k.recCenter = k.center.slice(); k.lastRead = now;
   const res = await readCardAsync(t.video, k.quad);
   if(!res || !res.list.length || !t.tracks.includes(k)) return;
   const top = res.list[0], second = res.list[1];
   const ok = top.score >= cfg.strict && (!second || top.score - second.score >= 0.015);
-  if(!ok){ k.votes = []; return; }
-  k.votes.push(top.meta.slug);
-  const last2 = k.votes.slice(-2);
-  if(last2.length === 2 && last2[0] === last2[1] && (!k.confirmed || k.confirmed.meta.slug !== top.meta.slug)){
-    k.confirmed = { meta: top.meta, score: top.score };
+  k.nextRead = performance.now() + (ok || k.attempts < 4 ? 0 : 600);
+  if(!ok) return;
+  const slug = top.meta.slug;
+  if(!k.confirmed){                       // first confident read: show it right away
+    k.confirmed = { meta: top.meta, score: top.score }; k.alt = null;
     const by = (players.get(t.id) || {}).name || 'Player';
     onTableSet(t.id + ':' + k.id, top.meta, by, top.score);
     showReading(res); showCard(top.meta);
     if(cfg.autoShare && t.id === 'me') shareCard(top.meta);
-  }else if(k.confirmed && k.confirmed.meta.slug === top.meta.slug){
-    k.confirmed.score = top.score;
+  }else if(k.confirmed.meta.slug === slug){
+    k.confirmed.score = top.score; k.alt = null;
+  }else{                                  // a different card: switch after two matching reads (card swapped)
+    k.alt = k.alt && k.alt.slug === slug ? { slug, n: k.alt.n + 1 } : { slug, n: 1 };
+    if(k.alt.n >= 2 || top.score > k.confirmed.score + 0.08){
+      k.confirmed = { meta: top.meta, score: top.score }; k.alt = null;
+      const by = (players.get(t.id) || {}).name || 'Player';
+      onTableSet(t.id + ':' + k.id, top.meta, by, top.score);
+      showReading(res); showCard(top.meta);
+      if(cfg.autoShare && t.id === 'me') shareCard(top.meta);
+    }
   }
 }
 
-// Light-weight loop: skips work when nothing on the table has moved.
-let busy = false;
-async function tick(){
-  if(busy || document.hidden || !cfg.autoDetect || $('#tableView').hidden) return;
-  if(!eng.worker || !eng.libOk || !eng.cvOk) return;
-  busy = true;
-  try{
-    for(const t of tiles.values()){
-      if(t.id !== 'me' && !cfg.allCams) continue;
-      const v = t.video; if(!v.videoWidth || v.readyState < 2) continue;
-      const f = grabSmall(t);
-      if(f.still && t.tracks.length && t.tracks.every(k => k.confirmed || k.attempts >= 5)) continue; // idle
-      let quads;
-      if(f.still && t.lastQuads) quads = t.lastQuads;
-      else{
-        const m = await ask({ type: 'detect', buf: f.buf, w: f.w, h: f.h }, [f.buf]);
-        quads = (m.quads || []).map(q => q.map(p => [p[0] / f.s, p[1] / f.s]));
-        t.lastQuads = quads;
-      }
-      updateTracks(t, quads, v.videoHeight);
-      for(const k of t.tracks){
-        if(k.missed || k.stable < 1) continue;
-        const moved = k.recCenter ? dist(k.center, k.recCenter) > 0.03 * v.videoHeight : false;
-        if(moved){ k.confirmed = null; k.votes = []; k.attempts = 0; onTableDel(t.id + ':' + k.id); }
-        if(!k.confirmed && (k.attempts < 5 || moved)){ await recognizeTrack(t, k); break; }
-      }
-      drawOverlay(t);
+// One pass: find card outlines, then read at most one card. Runs back to back, so the speed
+// is limited only by how fast the background worker answers.
+async function step(){
+  if(document.hidden || !cfg.autoDetect || $('#tableView').hidden) return false;
+  if(!eng.worker || !eng.libOk || !eng.cvOk) return false;
+  let worked = false;
+  for(const t of tiles.values()){
+    if(t.id !== 'me' && !cfg.allCams) continue;
+    const v = t.video; if(!v.videoWidth || v.readyState < 2) continue;
+    const f = grabSmall(t), now = performance.now();
+    if(f.still && t.tracks.length && t.tracks.every(k => k.confirmed)) continue; // nothing moved
+    if(f.still && !t.tracks.length && t.lastQuads) continue;                    // empty and quiet
+    worked = true;
+    let quads;
+    if(f.still && t.lastQuads) quads = t.lastQuads;
+    else{
+      const m = await ask({ type: 'detect', buf: f.buf, w: f.w, h: f.h }, [f.buf]);
+      quads = (m.quads || []).map(q => q.map(p => [p[0] / f.s, p[1] / f.s]));
+      t.lastQuads = quads;
     }
-  }catch(e){ console.warn('detect', e); }
-  finally{ busy = false; }
+    updateTracks(t, quads, v.videoHeight);
+    let pick = null, pickRank = 9;
+    for(const k of t.tracks){
+      if(k.missed) continue;
+      const moved = !k.recCenter || dist(k.center, k.recCenter) > 0.02 * v.videoHeight;
+      if(moved) k.attempts = Math.min(k.attempts, 2);
+      let rank = 9;
+      if(!k.confirmed){ if(moved || now >= k.nextRead) rank = moved ? 0 : 1; }
+      else if(moved) rank = 2;
+      else if(!f.still && now - k.lastRead > 600) rank = 3;      // re-check while the table is changing
+      if(rank < pickRank){ pick = k; pickRank = rank; }
+    }
+    if(pick) await recognizeTrack(t, pick);
+    drawOverlay(t);
+  }
+  return worked;
 }
-setInterval(tick, 600);
+let looping = false;
+async function loop(){
+  if(looping) return; looping = true;
+  for(;;){
+    const t0 = performance.now(); let worked = false;
+    try{ worked = await step(); }catch(e){ console.warn('scan', e); }
+    await new Promise(r => setTimeout(r, worked ? Math.max(0, 16 - (performance.now() - t0)) : 200));
+  }
+}
+loop();
 
 /* ---------- manual name search ---------- */
 let findT;
@@ -1049,7 +989,7 @@ $('#joinTable').onclick = () => {
 $('#codeIn').addEventListener('keydown', e => { if(e.key === 'Enter') $('#joinTable').click(); });
 $('#soloBtn').onclick = async () => {
   me.name = $('#nameIn').value.trim() || 'Player'; store.set('name', me.name);
-  if(!cam.stream){ try{ await openCamera(); }catch(e){ toast('Camera is off. You can still track life and search cards.'); } }
+  if(!cam.stream){ try{ await openCamera(); }catch(e){ toast('Camera is off. You can still search cards by name.'); } }
   showTable();
 };
 $('#leaveBtn').onclick = leaveTable;
