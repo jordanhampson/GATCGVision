@@ -1,0 +1,6 @@
+{
+  "name": "archive-table",
+  "private": true,
+  "scripts": { "build-library": "node tools/build-library.mjs" },
+  "dependencies": { "sharp": "^0.33.5" }
+}
