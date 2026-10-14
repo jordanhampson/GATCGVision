@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grand Archive - SpellTable Clone</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Load OpenCV.js for real-time card bounding & feature extraction -->
+  <script async src="https://docs.opencv.org/4.7.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+  <style>
+    .viewport-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background: #0f172a;
+    }
+    canvas#overlayCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+    }
+    .card-glow {
+      box-shadow: 0 0 20px rgba(234, 179, 8, 0.4);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 flex flex-col h-screen overflow-hidden font-sans">
+
+  <!-- Header / Navigation Bar -->
+  <header class="h-14 border-b border-slate-800 bg-slate-900/80 px-4 flex items-center justify-between z-10">
+    <div class="flex items-center gap-3">
+      <div class="h-8 w-8 bg-amber-500 rounded-lg flex items-center justify-center font-bold text-slate-950">GA</div>
+      <h1 class="font-bold text-lg tracking-wide bg-gradient-to-r from-amber-400 to-amber-200 bg-clip-text text-transparent">
+        GA Tabletop Live
+      </h1>
+      <span class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-700">index.gatcg.com API</span>
+    </div>
+
+    <!-- Controls -->
+    <div class="flex items-center gap-3">
+      <select id="cameraSelect" class="bg-slate-800 border border-slate-700 text-sm rounded px-2 py-1 focus:outline-none focus:border-amber-500">
+        <option value="">Selecting Camera...</option>
+      </select>
+      <button id="toggleCamBtn" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold px-3 py-1 rounded text-sm transition">
+        Start Camera
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Viewport Layout -->
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- Left / Center: Video Feeds Area -->
+    <div class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-2 p-2 bg-slate-900/50">
+      
+      <!-- Player 1 Feed (Local User Feed) -->
+      <div class="viewport-container rounded-xl overflow-hidden border border-slate-800 flex flex-col justify-between">
+        <video id="webcam" class="hidden" autoplay playsinline muted></video>
+        <canvas id="videoCanvas" class="w-full h-full object-cover"></canvas>
+        <canvas id="overlayCanvas"></canvas>
+
+        <!-- Player 1 HUD -->
+        <div class="absolute bottom-3 left-3 right-3 flex justify-between items-end pointer-events-auto">
+          <div class="bg-slate-900/90 backdrop-blur border border-slate-800 rounded-lg p-2.5 flex gap-4 items-center shadow-xl">
+            <div>
+              <div class="text-xs text-slate-400 uppercase font-semibold">Player 1 (You)</div>
+              <div class="text-sm font-medium text-amber-400">Champion Lv. <span id="p1-level">1</span></div>
+            </div>
+            
+            <!-- Life Counter -->
+            <div class="flex items-center gap-2 bg-slate-950 rounded px-2 py-1 border border-slate-800">
+              <button onclick="updateStat('p1-life', -1)" class="w-6 h-6 rounded bg-slate-800 hover:bg-red-500/20 text-red-400 flex items-center justify-center font-bold">-</button>
+              <div class="text-center min-w-[35px]">
+                <span id="p1-life" class="text-lg font-extrabold text-red-400">20</span>
+                <span class="text-[10px] block text-slate-500 uppercase -mt-1">Life</span>
+              </div>
+              <button onclick="updateStat('p1-life', 1)" class="w-6 h-6 rounded bg-slate-800 hover:bg-green-500/20 text-green-400 flex items-center justify-center font-bold">+</button>
+            </div>
+
+            <!-- Memory / Reserve Counter -->
+            <div class="flex items-center gap-2 bg-slate-950 rounded px-2 py-1 border border-slate-800">
+              <button onclick="updateStat('p1-mem', -1)" class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-blue-400 flex items-center justify-center font-bold">-</button>
+              <div class="text-center min-w-[35px]">
+                <span id="p1-mem" class="text-lg font-extrabold text-blue-400">0</span>
+                <span class="text-[10px] block text-slate-500 uppercase -mt-1">Memory</span>
+              </div>
+              <button onclick="updateStat('p1-mem', 1)" class="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-blue-400 flex items-center justify-center font-bold">+</button>
+            </div>
+          </div>
+
+          <div class="bg-slate-900/80 backdrop-blur px-2.5 py-1 rounded text-xs text-slate-400 border border-slate-800">
+            Status: <span id="cv-status" class="text-amber-400">Initializing OpenCV...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Player 2 Feed (Remote Opponent Mockup) -->
+      <div class="viewport-container rounded-xl overflow-hidden border border-slate-800 flex flex-col justify-between opacity-80">
+        <div class="absolute inset-0 flex items-
