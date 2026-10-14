@@ -9,9 +9,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
-  --felt:#12302d; --felt-hi:#1a423e; --panel:#0d1f1d; --panel-hi:#142b28;
+  --felt:#12302d; --panel:#0d1f1d; --panel-hi:#142b28;
   --ink:#e8efe9; --muted:#98b2aa; --brass:#d6ab52; --brass-ink:#241a05;
-  --bad:#e5705a; --line:rgba(232,239,233,.15);
+  --bad:#e5705a; --good:#8fd19e; --line:rgba(232,239,233,.15);
   --serif:"Fraunces",Georgia,"Times New Roman",serif;
   --sans:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
@@ -24,20 +24,19 @@ button{cursor:pointer}
 [hidden]{display:none!important}
 
 .bar{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--panel);min-height:56px}
-.brand{font-family:var(--serif);font-weight:700;font-size:21px;letter-spacing:.2px}
+.brand{font-family:var(--serif);font-weight:700;font-size:21px}
 .grow{flex:1}
 .chip{display:flex;align-items:center;gap:10px;padding:4px 6px 4px 12px;border:1px solid var(--line);border-radius:999px;background:var(--panel-hi)}
 .chip b{font-family:var(--serif);letter-spacing:2px;font-size:17px}
 .btn{border:1px solid var(--line);background:var(--panel-hi);padding:7px 13px;border-radius:8px;font-weight:500}
 .btn:hover{border-color:var(--muted)}
 .btn.primary{background:var(--brass);border-color:var(--brass);color:var(--brass-ink);font-weight:600}
-.btn.primary:hover{filter:brightness(1.08)}
 .btn.small{padding:3px 10px;border-radius:999px;font-size:13px}
 .btn.link{border:0;background:none;color:var(--muted);text-decoration:underline;padding:4px 0}
+.btn[aria-pressed=true]{border-color:var(--brass);color:var(--brass)}
 input[type=text],input[type=search],input[type=number],select{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
 label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 
-/* lobby */
 #lobby{display:grid;grid-template-columns:minmax(300px,440px) minmax(300px,1fr);gap:40px;max-width:1100px;margin:0 auto;padding:44px 22px}
 #lobby h1{font-family:var(--serif);font-weight:700;font-size:clamp(30px,4.4vw,46px);line-height:1.1;margin:0 0 14px;max-width:14ch}
 .lead{color:var(--muted);margin:0 0 26px;max-width:42ch}
@@ -51,12 +50,11 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 .camTools select{width:auto;max-width:230px}
 .preview .empty{aspect-ratio:16/9;display:grid;place-items:center;color:var(--muted);text-align:center;padding:20px}
 
-/* table */
-#tableView{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:12px;padding:12px;height:calc(100vh - 56px);min-height:560px}
+#tableView{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:12px;padding:12px;height:calc(100vh - 56px);min-height:600px}
 .stage{display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0}
 #grid{flex:1;display:grid;gap:10px;grid-template-columns:1fr;align-content:start;overflow:auto;min-height:0}
 #grid[data-n="2"],#grid[data-n="3"],#grid[data-n="4"]{grid-template-columns:repeat(2,minmax(0,1fr))}
-.strip{display:flex;flex-wrap:wrap;gap:12px 16px;align-items:center;padding:8px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.strip{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;padding:8px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
 .strip .camTools{padding:0}
 .strip .opt{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;margin:0}
 .strip input[type=range]{width:110px;accent-color:var(--brass)}
@@ -65,14 +63,14 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 
 .tile{position:relative;border-radius:14px;overflow:hidden;background:#071312;border:1px solid var(--line);aspect-ratio:16/9;min-height:0}
 .tile.mine{border-color:rgba(214,171,82,.55)}
-.feed{position:absolute;inset:0}
+.feed{position:absolute;inset:0;touch-action:none}
 .feed video{width:100%;height:100%;object-fit:contain;display:block}
 .tile.rot video{transform:rotate(180deg)}
-.tile.arming .feed{cursor:crosshair;outline:3px solid var(--brass);outline-offset:-3px}
-.mark{position:absolute;border:2px solid var(--brass);border-radius:6px;pointer-events:none;box-shadow:0 0 0 9999px rgba(0,0,0,.4)}
-.hint{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:var(--brass);color:var(--brass-ink);padding:5px 12px;border-radius:999px;font-weight:600;font-size:13px;pointer-events:none}
+.overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.tile.drawing .feed{cursor:crosshair;outline:3px solid var(--brass);outline-offset:-3px}
+.hint{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:var(--brass);color:var(--brass-ink);padding:5px 12px;border-radius:999px;font-weight:600;font-size:13px;pointer-events:none;white-space:nowrap}
 .tools{position:absolute;top:10px;right:10px;display:flex;gap:6px;opacity:0;transition:opacity .15s}
-.tile:hover .tools,.tile:focus-within .tools,.tile.arming .tools{opacity:1}
+.tile:hover .tools,.tile:focus-within .tools,.tile.drawing .tools{opacity:1}
 @media (hover:none){.tools{opacity:1}}
 .tools .btn{background:rgba(7,19,18,.82);backdrop-filter:blur(4px);padding:5px 10px;font-size:13px}
 .hud{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:flex-end;gap:14px;padding:26px 14px 10px;background:linear-gradient(to top,rgba(5,14,13,.88),rgba(5,14,13,0));pointer-events:none}
@@ -97,7 +95,6 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 .callout img{display:block;width:100%}
 .callout span{display:block;padding:3px 8px;font-size:12px;font-weight:600;background:var(--brass);color:var(--brass-ink)}
 
-/* dock */
 .dock{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto}
 .card{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px}
 .card h3{margin:0 0 8px;font-family:var(--serif);font-size:16px;font-weight:700}
@@ -109,14 +106,14 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
 .acts a{color:var(--muted);font-size:13px}
 .empty-note{color:var(--muted);font-size:14px;margin:0}
-.scanline{display:flex;gap:10px;align-items:flex-start}
-.scanline canvas{width:64px;height:64px;object-fit:cover;border-radius:6px;background:#071312;flex:none}
 .status{font-size:13px;color:var(--muted);margin:0 0 6px}
+.status.good{color:var(--good)}
+.scanline{display:flex;gap:10px;align-items:flex-start}
+.scanline canvas{width:80px;height:112px;border-radius:6px;background:#071312;flex:none}
 .picks{display:flex;flex-wrap:wrap;gap:6px}
 .picks .btn{font-size:12.5px;padding:3px 9px}
-.picks .btn[aria-pressed=true]{border-color:var(--brass);color:var(--brass)}
 .rows{display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:230px;overflow:auto}
-.rowbtn{display:grid;grid-template-columns:34px 1fr;gap:10px;align-items:center;text-align:left;border:1px solid var(--line);background:var(--panel-hi);border-radius:8px;padding:5px 8px}
+.rowbtn{display:grid;grid-template-columns:34px 1fr;gap:10px;align-items:center;text-align:left;border:1px solid var(--line);background:var(--panel-hi);border-radius:8px;padding:5px 8px;width:100%}
 .rowbtn:hover{border-color:var(--muted)}
 .rowbtn img{width:34px;aspect-ratio:5/7;object-fit:cover;border-radius:3px;background:#071312}
 .rowbtn small{display:block;color:var(--muted);font-size:12px}
@@ -126,6 +123,7 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 .feedlist button{display:flex;gap:8px;align-items:center;width:100%;text-align:left;border:0;background:none;padding:2px 0}
 .feedlist img{width:26px;aspect-ratio:5/7;object-fit:cover;border-radius:3px}
 .feedlist small{color:var(--muted)}
+progress{width:100%;height:8px;accent-color:var(--brass);margin:6px 0}
 #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:#0d1f1d;padding:9px 16px;border-radius:10px;font-weight:500;max-width:min(90vw,520px);z-index:20;box-shadow:0 8px 28px rgba(0,0,0,.4)}
 
 @media (max-width:900px){
@@ -149,15 +147,12 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 <main id="lobby">
   <section>
     <h1>Play Grand Archive over webcam</h1>
-    <p class="lead">Point a camera at your playmat, share a table code, and track champion life while everyone reads your cards.</p>
-
+    <p class="lead">Point a camera at your playmat, share a table code, and track champion life while your cards are recognized as you play them.</p>
     <div class="field">
       <label for="nameIn">Your name</label>
       <input type="text" id="nameIn" maxlength="20" autocomplete="nickname">
     </div>
-    <div class="field">
-      <button class="btn primary" id="startTable">Start a table</button>
-    </div>
+    <div class="field"><button class="btn primary" id="startTable">Start a table</button></div>
     <div class="pair">
       <div class="field">
         <label for="codeIn">Table code</label>
@@ -168,8 +163,7 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
     <button class="btn link" id="soloBtn">Practice solo, no network</button>
     <p id="lobbyMsg" role="status"></p>
   </section>
-
-  <section class="preview" id="previewBox">
+  <section class="preview">
     <div class="empty" id="previewEmpty">Turn on your camera to check your playmat before you sit down.</div>
     <video id="preview" autoplay muted playsinline hidden></video>
     <div class="camTools" id="lobbyCamSlot">
@@ -190,23 +184,38 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
     <div id="grid" data-n="1"></div>
     <div class="strip" id="strip">
       <button class="btn small" id="micBtn" aria-pressed="false">Mute mic</button>
-      <label class="opt">Scan area <input type="range" id="scanSize" min="0.25" max="0.8" step="0.01"></label>
-      <label class="opt"><input type="checkbox" id="autoShare"> Show confident scans to the table</label>
+      <label class="opt"><input type="checkbox" id="autoDetect"> Find cards automatically</label>
+      <label class="opt"><input type="checkbox" id="allCams"> Also read other cameras</label>
+      <label class="opt">Match strictness <input type="range" id="strict" min="0.2" max="0.8" step="0.01"></label>
+      <label class="opt"><input type="checkbox" id="autoShare"> Show recognized cards to the table</label>
     </div>
   </section>
 
   <aside class="dock">
     <section class="card cardview" id="viewer">
       <h3>Card</h3>
-      <p class="empty-note">Scan a card on camera or search by name. It appears here.</p>
+      <p class="empty-note">Place a card on your playmat. When it is recognized, it appears here.</p>
+    </section>
+
+    <section class="card" id="libCard">
+      <h3>Card library</h3>
+      <p class="status" id="libStatus">Checking…</p>
+      <progress id="libBar" max="1" value="0" hidden></progress>
+      <p class="status" id="engineStatus"></p>
+      <button class="btn small" id="libBtn" type="button">Build card library</button>
     </section>
 
     <section class="card">
-      <h3>Last scan</h3>
+      <h3>On the table</h3>
+      <ul class="feedlist" id="onTable"><li class="empty-note">No cards recognized.</li></ul>
+    </section>
+
+    <section class="card">
+      <h3>Last read</h3>
       <div class="scanline">
-        <canvas id="scanThumb" width="64" height="64" hidden></canvas>
+        <canvas id="scanThumb" width="80" height="112" hidden></canvas>
         <div style="flex:1;min-width:0">
-          <p class="status" id="scanStatus">Hover a video, press Scan card, then click the card.</p>
+          <p class="status" id="scanStatus">Cards are read when they sit still. You can also press Draw box on a video and drag around a card.</p>
           <div class="picks" id="picks"></div>
         </div>
       </div>
@@ -237,6 +246,197 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 (() => {
 'use strict';
 
+
+const CW = 200, CH = 280, DIM = 1680;
+// Card layout regions as fractions of the card: [x0, y0, x1, y1]
+const REG = { art: [0.07, 0.13, 0.93, 0.55], tl: [0.02, 0.015, 0.22, 0.115], tr: [0.78, 0.015, 0.98, 0.115] };
+const GRID = { art: [20, 14], cor: [14, 10] };
+// Vector layout: artG 280 | artC 560 | tlG 140 | tlC 280 | trG 140 | trC 280
+const OFF = { artG: 0, artC: 280, tlG: 840, tlC: 980, trG: 1260, trC: 1400 };
+const LEN = { artG: 280, artC: 560, tlG: 140, tlC: 280, trG: 140, trC: 280 };
+
+function cells(img, rect, gw, gh, dx, dy){
+  const W = img.width, H = img.height, d = img.data;
+  const x0 = (rect[0] + dx) * W, y0 = (rect[1] + dy) * H, x1 = (rect[2] + dx) * W, y1 = (rect[3] + dy) * H;
+  const out = new Float32Array(gw * gh * 3);
+  for(let cy = 0; cy < gh; cy++){
+    const ya = Math.max(0, Math.min(H - 1, Math.floor(y0 + (y1 - y0) * cy / gh)));
+    const yb = Math.min(H, Math.max(ya + 1, Math.ceil(y0 + (y1 - y0) * (cy + 1) / gh)));
+    for(let cx = 0; cx < gw; cx++){
+      const xa = Math.max(0, Math.min(W - 1, Math.floor(x0 + (x1 - x0) * cx / gw)));
+      const xb = Math.min(W, Math.max(xa + 1, Math.ceil(x0 + (x1 - x0) * (cx + 1) / gw)));
+      let r = 0, g = 0, b = 0, n = 0;
+      for(let y = ya; y < yb; y++) for(let x = xa; x < xb; x++){ const p = (y * W + x) * 4; r += d[p]; g += d[p + 1]; b += d[p + 2]; n++; }
+      if(!n) n = 1;
+      const o = (cy * gw + cx) * 3; out[o] = r / n; out[o + 1] = g / n; out[o + 2] = b / n;
+    }
+  }
+  return out;
+}
+function unit(v){
+  let m = 0; for(let i = 0; i < v.length; i++) m += v[i]; m /= v.length;
+  let n = 0; for(let i = 0; i < v.length; i++){ v[i] -= m; n += v[i] * v[i]; }
+  n = Math.sqrt(n);
+  if(n < 1e-6) v.fill(0); else for(let i = 0; i < v.length; i++) v[i] /= n;
+  return v;
+}
+function vecs(c, gw, gh){
+  const n = gw * gh, G = new Float32Array(n), C1 = new Float32Array(n), C2 = new Float32Array(n);
+  for(let i = 0; i < n; i++){
+    const r = c[i * 3], g = c[i * 3 + 1], b = c[i * 3 + 2];
+    G[i] = 0.299 * r + 0.587 * g + 0.114 * b; C1[i] = r - g; C2[i] = b - (r + g) / 2;
+  }
+  unit(G); unit(C1); unit(C2);
+  const C = new Float32Array(n * 2), k = Math.SQRT1_2;
+  for(let i = 0; i < n; i++){ C[i] = C1[i] * k; C[n + i] = C2[i] * k; }
+  return [G, C];
+}
+function describe(img, dx, dy){
+  const out = new Float32Array(DIM); let o = 0;
+  for(const [rect, grid] of [[REG.art, GRID.art], [REG.tl, GRID.cor], [REG.tr, GRID.cor]]){
+    const [g, c] = vecs(cells(img, rect, grid[0], grid[1], dx, dy), grid[0], grid[1]);
+    out.set(g, o); o += g.length; out.set(c, o); o += c.length;
+  }
+  return out;
+}
+function rot180(img){
+  const n = img.width * img.height, out = new Uint8ClampedArray(n * 4), d = img.data;
+  for(let i = 0; i < n; i++){ const j = n - 1 - i; out[i*4] = d[j*4]; out[i*4+1] = d[j*4+1]; out[i*4+2] = d[j*4+2]; out[i*4+3] = 255; }
+  return { width: img.width, height: img.height, data: out };
+}
+function gauss(A, b){
+  const n = 8;
+  for(let i = 0; i < n; i++){
+    let p = i; for(let r = i + 1; r < n; r++) if(Math.abs(A[r][i]) > Math.abs(A[p][i])) p = r;
+    [A[i], A[p]] = [A[p], A[i]]; [b[i], b[p]] = [b[p], b[i]];
+    const d = A[i][i] || 1e-12;
+    for(let r = i + 1; r < n; r++){ const f = A[r][i] / d; for(let c = i; c < n; c++) A[r][c] -= f * A[i][c]; b[r] -= f * b[i]; }
+  }
+  const x = new Array(n);
+  for(let i = n - 1; i >= 0; i--){ let s = b[i]; for(let c = i + 1; c < n; c++) s -= A[i][c] * x[c]; x[i] = s / (A[i][i] || 1e-12); }
+  return x;
+}
+function homography(dst, src){
+  const A = [], b = [];
+  for(let i = 0; i < 4; i++){
+    const [x, y] = dst[i], [X, Y] = src[i];
+    A.push([x, y, 1, 0, 0, 0, -x * X, -y * X]); b.push(X);
+    A.push([0, 0, 0, x, y, 1, -x * Y, -y * Y]); b.push(Y);
+  }
+  return gauss(A, b);
+}
+// quad order: TL, TR, BR, BL in src pixel coords. Output is a CW x CH upright card.
+function warp(src, quad, ss){
+  ss = ss || 2;
+  const h = homography([[0, 0], [CW, 0], [CW, CH], [0, CH]], quad);
+  const W = src.width, H = src.height, d = src.data, out = new Uint8ClampedArray(CW * CH * 4);
+  const sample = (X, Y, acc) => {
+    X = Math.max(0, Math.min(W - 1.001, X - 0.5)); Y = Math.max(0, Math.min(H - 1.001, Y - 0.5));
+    const x0 = X | 0, y0 = Y | 0, fx = X - x0, fy = Y - y0, p = (y0 * W + x0) * 4, q = p + W * 4;
+    for(let c = 0; c < 3; c++){
+      acc[c] += (d[p + c] * (1 - fx) + d[p + 4 + c] * fx) * (1 - fy) + (d[q + c] * (1 - fx) + d[q + 4 + c] * fx) * fy;
+    }
+  };
+  const acc = [0, 0, 0];
+  for(let v = 0; v < CH; v++) for(let u = 0; u < CW; u++){
+    acc[0] = acc[1] = acc[2] = 0;
+    for(let sy = 0; sy < ss; sy++) for(let sx = 0; sx < ss; sx++){
+      const x = u + (sx + 0.5) / ss, y = v + (sy + 0.5) / ss;
+      const w = h[6] * x + h[7] * y + 1;
+      sample((h[0] * x + h[1] * y + h[2]) / w, (h[3] * x + h[4] * y + h[5]) / w, acc);
+    }
+    const o = (v * CW + u) * 4, k = ss * ss;
+    out[o] = acc[0] / k; out[o + 1] = acc[1] / k; out[o + 2] = acc[2] / k; out[o + 3] = 255;
+  }
+  return { width: CW, height: CH, data: out };
+}
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+function orderQuad(pts){
+  const s = pts.map(p => p[0] + p[1]), d = pts.map(p => p[1] - p[0]);
+  const idx = a => a.indexOf(Math.min(...a)), idxMax = a => a.indexOf(Math.max(...a));
+  const tl = pts[idx(s)], br = pts[idxMax(s)], tr = pts[idx(d)], bl = pts[idxMax(d)];
+  return [tl, tr, br, bl];
+}
+// Make the quad portrait: if it is wider than tall, rotate corner order by a quarter turn.
+function portraitQuad(q){
+  const w = (dist(q[0], q[1]) + dist(q[3], q[2])) / 2, h = (dist(q[0], q[3]) + dist(q[1], q[2])) / 2;
+  return w > h ? [q[3], q[0], q[1], q[2]] : q;
+}
+function topK(arr, k){
+  const idx = [];
+  for(let i = 0; i < arr.length; i++){
+    if(idx.length < k || arr[i] > arr[idx[idx.length - 1]]){
+      let j = idx.length; idx.push(i);
+      while(j > 0 && arr[idx[j - 1]] < arr[i]){ idx[j] = idx[j - 1]; j--; }
+      idx[j] = i;
+      if(idx.length > k) idx.pop();
+    }
+  }
+  return idx;
+}
+function dotSlice(M, base, q, off, len){ let s = 0; for(let k = 0; k < len; k++) s += M[base + off + k] * q[off + k]; return s; }
+const cornerScore = (M, base, q, side) => side === 'tl'
+  ? 0.55 * dotSlice(M, base, q, OFF.tlG, LEN.tlG) + 0.45 * dotSlice(M, base, q, OFF.tlC, LEN.tlC)
+  : 0.55 * dotSlice(M, base, q, OFF.trG, LEN.trG) + 0.45 * dotSlice(M, base, q, OFF.trC, LEN.trC);
+const artScore = (M, base, q) => 0.65 * dotSlice(M, base, q, OFF.artG, LEN.artG) + 0.35 * dotSlice(M, base, q, OFF.artC, LEN.artC);
+
+function vote(idxs, scores, meta, keyFn){
+  const seen = new Set(), m = new Map(); let tot = 0;
+  for(const i of idxs){
+    const slug = meta[i].slug; if(seen.has(slug)) continue; seen.add(slug);
+    if(seen.size > 10) break;
+    const w = Math.pow(Math.max(0, scores[i]), 3), k = keyFn(i);
+    m.set(k, (m.get(k) || 0) + w); tot += w;
+  }
+  let best = null; m.forEach((w, k) => { if(!best || w > best.w) best = { k, w }; });
+  return best && tot > 0 ? { key: best.k, share: best.w / tot } : null;
+}
+// lib: { n, M (Float32Array n*DIM), meta[], ek[], ck[] }
+function recognize(img0, lib){
+  const N = lib.n, M = lib.M; if(!N) return null;
+  const shifts5 = [[0, 0], [0.012, 0], [-0.012, 0], [0, 0.012], [0, -0.012]];
+  let pick = null;
+  for(const img of [img0, rot180(img0)]){
+    const vs = shifts5.map(([dx, dy]) => describe(img, dx, dy));
+    const tl = new Float32Array(N), tr = new Float32Array(N);
+    for(let i = 0; i < N; i++){
+      const base = i * DIM; let a = -2, b = -2;
+      for(const q of vs){ const s1 = cornerScore(M, base, q, 'tl'), s2 = cornerScore(M, base, q, 'tr'); if(s1 > a) a = s1; if(s2 > b) b = s2; }
+      tl[i] = a; tr[i] = b;
+    }
+    const avg = arr => { const t = topK(arr, 5); return t.reduce((s, i) => s + arr[i], 0) / t.length; };
+    const quality = avg(tl) + avg(tr);
+    if(!pick || quality > pick.quality) pick = { img, quality, tl, tr };
+  }
+  const { tl, tr, img } = pick;
+  const element = vote(topK(tr, 30), tr, lib.meta, i => lib.ek[i]);
+  const cost = vote(topK(tl, 30), tl, lib.meta, i => lib.ck[i]);
+  const filt = (useEl, useCo) => { const out = []; for(let i = 0; i < N; i++){
+    if(useEl && lib.ek[i] !== element.key) continue; if(useCo && lib.ck[i] !== cost.key) continue; out.push(i); } return out; };
+  const elOk = element && element.share >= 0.5, coOk = cost && cost.share >= 0.5;
+  let cand = filt(elOk, coOk), mode = 'element + cost';
+  if(cand.length < 3){ cand = filt(elOk, false); mode = 'element'; }
+  if(cand.length < 3){ cand = filt(false, coOk); mode = 'cost'; }
+  if(cand.length < 3){ cand = filt(false, false); mode = 'all cards'; }
+  if(mode === 'element + cost' && !elOk) mode = 'cost'; // (defensive labels)
+  // Symbols can be misread, so also keep the cards whose corners look most alike.
+  const comb = new Float32Array(N); for(let i = 0; i < N; i++) comb[i] = tl[i] + tr[i];
+  const keep = new Set(cand); for(const i of topK(comb, Math.min(N, 80))) keep.add(i);
+  cand = [...keep];
+  const shifts9 = []; for(const dy of [-0.012, 0, 0.012]) for(const dx of [-0.012, 0, 0.012]) shifts9.push(describe(img, dx, dy));
+  const scored = [];
+  for(const i of cand){
+    const base = i * DIM; let a = -2;
+    for(const q of shifts9){ const s = artScore(M, base, q); if(s > a) a = s; }
+    scored.push({ i, art: a, tl: tl[i], tr: tr[i], score: 0.6 * a + 0.2 * tl[i] + 0.2 * tr[i] });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const seen = new Set(), list = [];
+  for(const s of scored){ const slug = lib.meta[s.i].slug; if(seen.has(slug)) continue; seen.add(slug); list.push({ meta: lib.meta[s.i], ...s }); if(list.length >= 5) break; }
+  return { img, list, element: elOk ? element : null, cost: coOk ? cost : null, candidates: cand.length, mode, flipped: img !== img0 };
+}
+
+
 /* ---------- helpers ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -260,8 +460,10 @@ const loadScript = src => new Promise((res, rej) => {
 const cfg = {
   api: store.get('api', 'https://api.gatcg.com'),
   index: 'https://index.gatcg.com',
-  scan: parseFloat(store.get('scan', '0.42')) || 0.42,
+  strict: parseFloat(store.get('strict', '0.45')) || 0.45,
   autoShare: store.get('auto', '1') === '1',
+  autoDetect: store.get('detect', '1') === '1',
+  allCams: store.get('allcams', '0') === '1',
   quality: store.get('q', '1080')
 };
 
@@ -288,8 +490,7 @@ function makeBlank(){
   const s = c.captureStream(2);
   try{
     const ac = new (window.AudioContext || window.webkitAudioContext)();
-    const dest = ac.createMediaStreamDestination();
-    dest.stream.getAudioTracks().forEach(t => s.addTrack(t));
+    ac.createMediaStreamDestination().stream.getAudioTracks().forEach(t => s.addTrack(t));
   }catch(e){}
   return s;
 }
@@ -357,12 +558,12 @@ function ensureTile(id){
   root.innerHTML = `
     <div class="feed">
       <video autoplay playsinline></video>
-      <div class="mark" hidden></div>
-      <div class="hint" hidden>Click the card you want to read</div>
+      <canvas class="overlay"></canvas>
+      <div class="hint" hidden>Drag a box around the card</div>
       <div class="callout" hidden><img alt=""><span></span></div>
     </div>
     <div class="tools">
-      <button class="btn scan" type="button">Scan card</button>
+      <button class="btn draw" type="button" aria-pressed="false" title="Drag a box around a card to read it">Draw box</button>
       <button class="btn rot" type="button" aria-pressed="false" title="Turn this view upside down (overhead cameras)">Rotate view</button>
     </div>
     <div class="hud">
@@ -385,13 +586,17 @@ function ensureTile(id){
       </div>
     </div>`;
   const t2 = {
-    id, root, rot: false,
-    video: root.querySelector('video'), feed: root.querySelector('.feed'),
-    mark: root.querySelector('.mark'), hint: root.querySelector('.hint'),
-    callout: root.querySelector('.callout'), num: root.querySelector('.num')
+    id, root, rot: false, tracks: [], tid: 0, drag: null,
+    video: root.querySelector('video'), feed: root.querySelector('.feed'), overlay: root.querySelector('.overlay'),
+    hint: root.querySelector('.hint'), callout: root.querySelector('.callout'), num: root.querySelector('.num')
   };
   t2.video.muted = mine; t2.video.playsInline = true;
   root.addEventListener('click', e => onTileClick(t2, e));
+  t2.feed.addEventListener('pointerdown', e => dragStart(t2, e));
+  t2.feed.addEventListener('pointermove', e => dragMove(t2, e));
+  t2.feed.addEventListener('pointerup', e => dragEnd(t2, e));
+  t2.feed.addEventListener('pointercancel', () => { t2.drag = null; drawOverlay(t2); });
+  new ResizeObserver(() => drawOverlay(t2)).observe(t2.feed);
   root.querySelector('.maxlife').addEventListener('change', e => {
     if(!mine) return;
     const v = Math.max(1, Math.min(99, parseInt(e.target.value, 10) || me.life));
@@ -404,6 +609,7 @@ function ensureTile(id){
 }
 function removeTile(id){
   const t = tiles.get(id); if(!t) return;
+  t.tracks.forEach(k => onTableDel(id + ':' + k.id));
   t.root.remove(); tiles.delete(id); players.delete(id);
   $('#grid').dataset.n = Math.min(4, Math.max(1, tiles.size));
 }
@@ -434,34 +640,102 @@ function addLog(html){
   while(ul.children.length > 40) ul.lastChild.remove();
 }
 
-/* ---------- tile interactions ---------- */
-let arming = null;
+/* ---------- tile buttons ---------- */
+let drawing = null;
 function onTileClick(t, e){
-  const btn = e.target.closest('button');
-  if(btn){
-    if(btn.classList.contains('scan')){ arm(t.id === arming ? null : t.id); return; }
-    if(btn.classList.contains('rot')){
-      t.rot = !t.rot; t.root.classList.toggle('rot', t.rot); btn.setAttribute('aria-pressed', t.rot); return;
-    }
-    if(t.id === 'me' && btn.dataset.life){
-      const d = parseInt(btn.dataset.life, 10);
-      const before = remaining(me);
-      me.dmg = Math.max(0, me.dmg - d);
-      const after = remaining(me);
-      if(after !== before) addLog(`<b>${esc(me.name || 'You')}</b> ${before} → ${after}`);
-      commit(); return;
-    }
-    if(t.id === 'me' && btn.dataset.lvl){
-      me.level = Math.max(0, Math.min(9, me.level + parseInt(btn.dataset.lvl, 10))); commit(); return;
-    }
-    return;
+  const btn = e.target.closest('button'); if(!btn) return;
+  if(btn.classList.contains('draw')){ setDrawing(t.id === drawing ? null : t.id); return; }
+  if(btn.classList.contains('rot')){
+    t.rot = !t.rot; t.root.classList.toggle('rot', t.rot); btn.setAttribute('aria-pressed', t.rot); drawOverlay(t); return;
   }
-  if(arming === t.id && e.target.closest('.feed')) runScan(t, e);
+  if(t.id === 'me' && btn.dataset.life){
+    const d = parseInt(btn.dataset.life, 10), before = remaining(me);
+    me.dmg = Math.max(0, me.dmg - d);
+    const after = remaining(me);
+    if(after !== before) addLog(`<b>${esc(me.name || 'You')}</b> ${before} → ${after}`);
+    commit(); return;
+  }
+  if(t.id === 'me' && btn.dataset.lvl){
+    me.level = Math.max(0, Math.min(9, me.level + parseInt(btn.dataset.lvl, 10))); commit();
+  }
 }
-function arm(id){
-  arming = id;
-  tiles.forEach(t => { t.root.classList.toggle('arming', t.id === id); t.hint.hidden = t.id !== id; });
-  if(id) $('#scanStatus').textContent = 'Click the card in the video.';
+function setDrawing(id){
+  drawing = id;
+  tiles.forEach(t => {
+    t.root.classList.toggle('drawing', t.id === id); t.hint.hidden = t.id !== id;
+    t.root.querySelector('.draw').setAttribute('aria-pressed', t.id === id);
+  });
+}
+
+/* ---------- geometry: video <-> overlay ---------- */
+function viewBox(t){
+  const W = t.feed.clientWidth, H = t.feed.clientHeight, vw = t.video.videoWidth, vh = t.video.videoHeight;
+  if(!vw || !vh || !W || !H) return null;
+  const sc = Math.min(W / vw, H / vh);
+  return { W, H, vw, vh, sc, ox: (W - vw * sc) / 2, oy: (H - vh * sc) / 2 };
+}
+function toDisplay(t, b, x, y){
+  let dx = b.ox + x * b.sc, dy = b.oy + y * b.sc;
+  if(t.rot){ dx = b.W - dx; dy = b.H - dy; }
+  return [dx, dy];
+}
+function toVideo(t, b, e){
+  const r = t.feed.getBoundingClientRect();
+  let dx = e.clientX - r.left, dy = e.clientY - r.top;
+  if(t.rot){ dx = b.W - dx; dy = b.H - dy; }
+  return [Math.max(0, Math.min(b.vw, (dx - b.ox) / b.sc)), Math.max(0, Math.min(b.vh, (dy - b.oy) / b.sc))];
+}
+
+/* ---------- overlay: rectangles around cards ---------- */
+function drawOverlay(t){
+  const c = t.overlay, dpr = window.devicePixelRatio || 1;
+  const W = t.feed.clientWidth, H = t.feed.clientHeight;
+  if(c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)){ c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+  const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const b = viewBox(t); if(!b) return;
+  g.lineJoin = 'round'; g.font = '600 13px "Instrument Sans", system-ui, sans-serif';
+  const poly = (q, color, width, dash) => {
+    g.beginPath(); q.forEach((p, i) => { const [x, y] = toDisplay(t, b, p[0], p[1]); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.closePath(); g.setLineDash(dash || []); g.lineWidth = width; g.strokeStyle = color; g.stroke(); g.setLineDash([]);
+  };
+  t.tracks.forEach(k => {
+    if(k.missed > 1) return;
+    const ok = !!k.confirmed;
+    poly(k.quad, ok ? '#d6ab52' : 'rgba(232,239,233,.8)', ok ? 3 : 2, ok ? null : [6, 5]);
+    const label = ok ? `${k.confirmed.meta.name}  ${Math.round(k.confirmed.score * 100)}%` : (k.attempts ? 'Reading…' : '');
+    if(label){
+      const pts = k.quad.map(p => toDisplay(t, b, p[0], p[1]));
+      const top = pts.reduce((a, p) => p[1] < a[1] ? p : a, pts[0]);
+      const w = g.measureText(label).width + 14, x = Math.max(2, Math.min(W - w - 2, top[0] - w / 2)), y = Math.max(2, top[1] - 26);
+      g.fillStyle = ok ? '#d6ab52' : 'rgba(7,19,18,.85)'; g.beginPath(); g.roundRect ? g.roundRect(x, y, w, 22, 6) : g.rect(x, y, w, 22); g.fill();
+      g.fillStyle = ok ? '#241a05' : '#e8efe9'; g.textBaseline = 'middle'; g.fillText(label, x + 7, y + 11.5);
+    }
+  });
+  if(t.drag){
+    const [a, bb] = [t.drag.a, t.drag.b];
+    poly([[a[0], a[1]], [bb[0], a[1]], [bb[0], bb[1]], [a[0], bb[1]]], '#d6ab52', 2, [7, 5]);
+  }
+}
+
+/* ---------- manual rectangle ---------- */
+function dragStart(t, e){
+  if(drawing !== t.id) return;
+  const b = viewBox(t); if(!b) return;
+  e.preventDefault(); t.feed.setPointerCapture(e.pointerId);
+  const p = toVideo(t, b, e); t.drag = { a: p, b: p };
+}
+function dragMove(t, e){
+  if(!t.drag) return;
+  const b = viewBox(t); if(!b) return;
+  t.drag.b = toVideo(t, b, e); drawOverlay(t);
+}
+function dragEnd(t, e){
+  if(!t.drag) return;
+  const { a, b } = t.drag; t.drag = null;
+  const x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), y0 = Math.min(a[1], b[1]), y1 = Math.max(a[1], b[1]);
+  setDrawing(null);
+  if(x1 - x0 < 24 || y1 - y0 < 24){ drawOverlay(t); return; }
+  readQuad(t, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], true);
 }
 
 /* ---------- networking (PeerJS mesh, up to 4 players) ---------- */
@@ -477,7 +751,6 @@ function createPeer(id){
   });
 }
 function broadcast(msg){ net.conns.forEach(c => { if(c.open) c.send(msg); }); }
-
 function link(id){
   if(!net.peer || net.conns.has(id) || id === net.peer.id) return;
   setupConn(net.peer.connect(id, { reliable: true }));
@@ -508,7 +781,7 @@ function onData(conn, d){
   if(!d || typeof d !== 'object') return;
   const id = conn.peer;
   if(d.t === 'state'){
-    const t = ensureTile(id);
+    ensureTile(id);
     const p = players.get(id) || { id, dmg: 0, life: 20, level: 0, name: '', champ: '' };
     const before = remaining(p), known = players.has(id);
     Object.assign(p, d.s); players.set(id, p);
@@ -532,7 +805,6 @@ function onIncoming(conn){
     net.members.add(conn.peer);
   });
 }
-
 async function enterTable(code, asHost){
   const msg = $('#lobbyMsg'); msg.textContent = '';
   me.name = $('#nameIn').value.trim() || 'Player'; store.set('name', me.name);
@@ -540,7 +812,6 @@ async function enterTable(code, asHost){
     try{ await openCamera(); }catch(e){ toast('Camera is off, so others will see a placeholder. Use Restart camera in the controls to turn it on.'); }
   }
   try{
-    let id;
     if(asHost){
       for(let i = 0; i < 4; i++){
         code = i ? newCode() : code;
@@ -579,31 +850,31 @@ function cleanupNet(){
 }
 function leaveTable(){
   cleanupNet();
-  [...tiles.keys()].forEach(id => { if(id !== 'me') removeTile(id); });
-  const t = tiles.get('me'); if(t) removeTile('me');
+  [...tiles.keys()].forEach(id => removeTile(id));
   players.clear(); players.set('me', me);
   me.dmg = 0; me.level = 0; me.champ = '';
   $('#roomChip').hidden = true; $('#leaveBtn').hidden = true;
   $('#tableView').hidden = true; $('#lobby').hidden = false;
   $('#lobbyCamSlot').appendChild($('#camTools'));
-  arming = null; showLocal();
+  drawing = null; showLocal();
 }
 function showTable(){
   $('#lobby').hidden = true; $('#tableView').hidden = false; $('#leaveBtn').hidden = false;
   ensureTile('me'); renderTile('me');
   $('#strip').prepend($('#camTools'));
   showLocal();
+  initEngine();
 }
 
-/* ---------- Grand Archive card data ---------- */
+/* ---------- card data ---------- */
 const cache = new Map();
-function norm(c){
-  const ed = (c.result_editions && c.result_editions[0]) || (c.editions && c.editions[0]) || {};
+function norm(c, ed){
+  ed = ed || (c.result_editions && c.result_editions[0]) || (c.editions && c.editions[0]) || {};
   const img = ed.image ? (/^https?:/.test(ed.image) ? ed.image : cfg.api + ed.image) : '';
   return {
     slug: c.slug, name: c.name, types: c.types || [], subtypes: c.subtypes || [], classes: c.classes || [],
     elements: c.elements || (c.element ? [c.element] : []),
-    cost: c.cost, level: c.level, life: c.life, power: c.power, durability: c.durability,
+    cost: c.cost || null, level: c.level, life: c.life, power: c.power, durability: c.durability,
     effect: c.effect_raw || '', img, set: (ed.set && ed.set.prefix) || '',
     url: `${cfg.index}/card/${c.slug}`
   };
@@ -614,11 +885,13 @@ async function searchCards(q, n = 8){
   const r = await fetch(url);
   if(!r.ok) throw new Error('Card API returned ' + r.status);
   const j = await r.json();
-  const out = (j.data || []).map(norm);
+  const out = (j.data || []).map(c => norm(c));
   cache.set(url, out); return out;
 }
 const isChampion = c => c.types.some(t => /champion/i.test(t));
-
+const elemKey = m => (m.elements || []).slice().sort().join('/') || 'NONE';
+const costKey = m => m.cost && m.cost.type && m.cost.type !== 'none' ? `${m.cost.type}:${m.cost.value}` : 'none';
+function costText(key){ if(key === 'none') return 'no cost'; const [t, v] = key.split(':'); return `${title(t)} ${v}`; }
 function metaLine(c){
   const bits = [];
   if(c.types.length) bits.push(c.types.map(title).join(' '));
@@ -639,8 +912,7 @@ function statLine(c){
 let viewing = null;
 function showCard(c){
   viewing = c;
-  const v = $('#viewer');
-  v.innerHTML = `
+  $('#viewer').innerHTML = `
     <h3>Card</h3>
     <div class="face">
       ${c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}">` : '<div></div>'}
@@ -693,147 +965,314 @@ function pushShared(c, byId){
   if(byId !== 'me') showCard(c);
 }
 
-/* ---------- card recognition ---------- */
-let ocr = null;
-async function getOcr(){
-  if(ocr) return ocr;
-  if(!window.Tesseract) await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js');
-  const w = await Tesseract.createWorker('eng');
-  await w.setParameters({ tessedit_pageseg_mode: '11', preserve_interword_spaces: '1' });
-  return (ocr = w);
-}
-function lev(a, b){
-  const m = a.length, n = b.length; if(!m) return n; if(!n) return m;
-  let prev = Array.from({ length: n + 1 }, (_, j) => j);
-  for(let i = 1; i <= m; i++){
-    const cur = [i];
-    for(let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    prev = cur;
-  }
-  return prev[n];
-}
-const sim = (a, b) => { a = a.toLowerCase(); b = b.toLowerCase(); return (!a || !b) ? 0 : 1 - lev(a, b) / Math.max(a.length, b.length); };
-function score(cand, name){
-  const cw = cand.split(/\s+/), nw = name.split(/\s+/).length;
-  let best = sim(cand, name);
-  for(let i = 0; i + nw <= cw.length; i++) best = Math.max(best, sim(cw.slice(i, i + nw).join(' '), name));
-  return best;
-}
-function extractLines(d){
-  if(Array.isArray(d.lines) && d.lines.length) return d.lines.map(l => ({ text: l.text, conf: l.confidence }));
-  const out = [];
-  (d.blocks || []).forEach(b => (b.paragraphs || []).forEach(p => (p.lines || []).forEach(l => out.push({ text: l.text, conf: l.confidence }))));
-  if(out.length) return out;
-  return String(d.text || '').split('\n').map(t => ({ text: t, conf: d.confidence || 50 }));
-}
-function buildCandidates(lines){
-  const clean = lines.map(l => ({ t: l.text.replace(/[^A-Za-z'\- ]/g, ' ').replace(/\s+/g, ' ').trim(), c: l.conf }))
-    .filter(l => l.t.length >= 4 && l.c >= 25);
-  const seen = new Set(), ranked = [];
-  clean.sort((a, b) => b.c * b.t.length - a.c * a.t.length).forEach(l => { const k = l.t.toLowerCase(); if(!seen.has(k)){ seen.add(k); ranked.push(l.t); } });
-  const out = new Set();
-  ranked.slice(0, 4).forEach(t => {
-    out.add(t);
-    const w = t.split(' ');
-    if(w.length > 2) out.add(w.slice(0, 2).join(' '));
-    const longest = w.slice().sort((a, b) => b.length - a.length)[0];
-    if(longest && longest.length >= 5) out.add(longest);
+/* ---------- "On the table" list ---------- */
+const onTable = new Map();
+function renderOnTable(){
+  const ul = $('#onTable'); ul.innerHTML = '';
+  if(!onTable.size){ ul.innerHTML = '<li class="empty-note">No cards recognized.</li>'; return; }
+  onTable.forEach(v => {
+    const li = document.createElement('li');
+    li.innerHTML = `<button type="button">${v.meta.img ? `<img src="${esc(v.meta.img)}" alt="">` : ''}<span>${esc(v.meta.name)}<br><small>${esc(v.by)} · ${Math.round(v.score * 100)}% match</small></span></button>`;
+    li.firstChild.onclick = () => showCard(v.meta);
+    ul.appendChild(li);
   });
-  return [...out].slice(0, 7);
 }
-async function matchCandidates(cands){
-  const results = await Promise.allSettled(cands.map(c => searchCards(c, 6)));
-  const best = new Map();
-  results.forEach((r, i) => {
-    if(r.status !== 'fulfilled') return;
-    r.value.forEach(card => {
-      const s = score(cands[i], card.name);
-      const cur = best.get(card.slug);
-      if(!cur || s > cur.score) best.set(card.slug, { card, score: s });
-    });
-  });
-  if(!best.size && results.every(r => r.status === 'rejected')) throw results[0].reason;
-  return [...best.values()].sort((a, b) => b.score - a.score);
-}
-function rotateCanvas(c, deg){
-  if(!deg) return c;
-  const o = document.createElement('canvas'), swap = deg === 90 || deg === 270;
-  o.width = swap ? c.height : c.width; o.height = swap ? c.width : c.height;
-  const g = o.getContext('2d');
-  g.translate(o.width / 2, o.height / 2); g.rotate(deg * Math.PI / 180);
-  g.drawImage(c, -c.width / 2, -c.height / 2);
-  return o;
-}
-function setStatus(s){ $('#scanStatus').textContent = s; }
+function onTableSet(key, meta, by, score){ onTable.set(key, { meta, by, score }); renderOnTable(); }
+function onTableDel(key){ if(onTable.delete(key)) renderOnTable(); }
 
-function grab(t, ev){
-  const v = t.video, vw = v.videoWidth, vh = v.videoHeight;
-  if(!vw || !vh){ toast('Video is not ready yet.'); return null; }
-  const r = t.feed.getBoundingClientRect();
-  let u = (ev.clientX - r.left) / r.width, w = (ev.clientY - r.top) / r.height;
-  if(t.rot){ u = 1 - u; w = 1 - w; }
-  const sc = Math.min(r.width / vw, r.height / vh), ox = (r.width - vw * sc) / 2, oy = (r.height - vh * sc) / 2;
-  const cx = (u * r.width - ox) / sc, cy = (w * r.height - oy) / sc;
-  if(cx < 0 || cy < 0 || cx > vw || cy > vh) return null;
-  const side = Math.min(Math.round(cfg.scan * vh), vw, vh);
-  const sx = Math.max(0, Math.min(vw - side, Math.round(cx - side / 2)));
-  const sy = Math.max(0, Math.min(vh - side, Math.round(cy - side / 2)));
-  const k = Math.min(2.5, Math.max(1, 1100 / side));
-  const c = document.createElement('canvas'); c.width = c.height = Math.round(side * k);
-  const g = c.getContext('2d'); g.filter = 'grayscale(1) contrast(1.35)';
-  g.drawImage(v, sx, sy, side, side, 0, 0, c.width, c.height);
-  // highlight box in display space
-  const bs = side * sc, bx = sx * sc + ox, by = sy * sc + oy;
-  Object.assign(t.mark.style, {
-    width: bs + 'px', height: bs + 'px',
-    left: (t.rot ? r.width - (bx + bs) : bx) + 'px', top: (t.rot ? r.height - (by + bs) : by) + 'px'
-  });
-  t.mark.hidden = false; setTimeout(() => t.mark.hidden = true, 1700);
-  return t.rot ? rotateCanvas(c, 180) : c;
-}
+/* ---------- card library (IndexedDB) ---------- */
+const idb = {
+  db: null,
+  open(){ return this.db ? Promise.resolve(this.db) : new Promise((res, rej) => {
+    const r = indexedDB.open('archive-table', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('cards', { keyPath: 'key' });
+    r.onsuccess = () => { this.db = r.result; res(this.db); };
+    r.onerror = () => rej(r.error);
+  }); },
+  async req(mode, fn){ const db = await this.open(); return new Promise((res, rej) => {
+    const tx = db.transaction('cards', mode), r = fn(tx.objectStore('cards'));
+    tx.oncomplete = () => res(r && r.result); tx.onerror = () => rej(tx.error);
+  }); },
+  all(){ return this.req('readonly', s => s.getAll()); },
+  keys(){ return this.req('readonly', s => s.getAllKeys()); },
+  put(rec){ return this.req('readwrite', s => s.put(rec)); }
+};
+let lib = { n: 0, M: new Float32Array(0), meta: [], ek: [], ck: [] };
+let building = false;
 
-let scanning = false;
-async function runScan(t, ev){
-  if(scanning) return;
-  const crop = grab(t, ev); if(!crop) return;
-  arm(null); scanning = true;
-  const th = $('#scanThumb'); th.hidden = false;
-  th.getContext('2d').drawImage(crop, 0, 0, th.width, th.height);
-  $('#picks').innerHTML = '';
+function setLibUI(text, frac, good){
+  const st = $('#libStatus'); st.textContent = text; st.classList.toggle('good', !!good);
+  const bar = $('#libBar'); bar.hidden = frac == null; if(frac != null) bar.value = frac;
+}
+async function loadLibrary(){
   try{
-    setStatus('Loading text reader (first scan only)…');
-    const w = await getOcr();
-    let best = { score: 0, list: [] };
-    for(const deg of [0, 90, 270, 180]){
-      setStatus(`Reading card… (${deg}°)`);
-      const { data } = await w.recognize(rotateCanvas(crop, deg));
-      const cands = buildCandidates(extractLines(data));
-      if(!cands.length) continue;
-      const found = await matchCandidates(cands);
-      if(found.length && found[0].score > best.score) best = { score: found[0].score, list: found };
-      if(best.score >= 0.82) break;
-    }
-    if(!best.list.length){ setStatus('Could not read any card text. Try a larger scan area, better light, or search by name.'); return; }
-    const top = best.list.slice(0, 4);
-    const sure = best.score >= 0.55;
-    setStatus(sure ? `Best match: ${top[0].card.name} (${Math.round(best.score * 100)}% sure). Not right? Pick another.` : 'No confident match. Pick one, or search by name.');
-    const picks = $('#picks');
-    top.forEach((m, i) => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.className = 'btn'; b.textContent = m.card.name; b.setAttribute('aria-pressed', i === 0 && sure);
-      b.onclick = () => { [...picks.children].forEach(x => x.setAttribute('aria-pressed', 'false')); b.setAttribute('aria-pressed', 'true'); showCard(m.card); };
-      picks.appendChild(b);
-    });
-    if(sure) showCard(top[0].card);
-    if(sure && best.score >= 0.72 && cfg.autoShare && t.id === 'me') shareCard(top[0].card);
+    const recs = await idb.all();
+    const n = recs.length, M = new Float32Array(n * DIM), meta = [], ek = [], ck = [];
+    recs.forEach((r, i) => { M.set(r.v, i * DIM); meta.push(r.meta); ek.push(elemKey(r.meta)); ck.push(costKey(r.meta)); });
+    lib = { n, M, meta, ek, ck };
+    if(n){ setLibUI(`${new Set(meta.map(m => m.slug)).size.toLocaleString()} cards ready to recognize.`, null, true); $('#libBtn').textContent = 'Check for new cards'; }
+    else { setLibUI('Not built yet. Recognition needs a one-time download of card art (a few minutes).', null); $('#libBtn').textContent = 'Build card library'; }
   }catch(e){
-    setStatus('Scan failed: ' + (e.message || e) + '. If this mentions the card API, check your connection.');
+    setLibUI('Your browser blocked local storage here, so the card library cannot be saved. Open this page from localhost.', null);
+  }
+}
+async function descFromUrl(url){
+  const r = await fetch(url); if(!r.ok) throw new Error('image ' + r.status);
+  const bmp = await createImageBitmap(await r.blob());
+  const c = document.createElement('canvas'); c.width = CW; c.height = CH;
+  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(bmp, 0, 0, CW, CH); if(bmp.close) bmp.close();
+  const id = g.getImageData(0, 0, CW, CH);
+  return describe({ width: CW, height: CH, data: id.data }, 0, 0);
+}
+async function buildLibrary(){
+  if(building) return; building = true; $('#libBtn').disabled = true;
+  try{
+    setLibUI('Fetching the card list…', 0);
+    const entries = []; let page = 1, total = 1;
+    while(page <= total){
+      const r = await fetch(`${cfg.api}/cards/search?page=${page}&page_size=50`);
+      if(!r.ok) throw new Error('Card API returned ' + r.status);
+      const j = await r.json(); total = j.total_pages || 1;
+      for(const c of j.data || []){
+        const eds = (c.editions || []).filter(e => e.image); if(!eds.length) continue;
+        const picks = [eds[0]]; if(eds.length > 1 && eds[eds.length - 1].image !== eds[0].image) picks.push(eds[eds.length - 1]);
+        picks.forEach((ed, i) => entries.push({ key: `${c.slug}#${ed.slug || i}`, meta: norm(c, ed) }));
+      }
+      setLibUI(`Fetching the card list… page ${page} of ${total}`, 0.1 * page / total); page++;
+    }
+    const have = new Set(await idb.keys());
+    const queue = entries.filter(e => !have.has(e.key));
+    if(!queue.length){ await loadLibrary(); toast('Card library is up to date.'); return; }
+    let done = 0, fails = 0, stop = null; const todo = queue.length;
+    const worker = async () => {
+      while(queue.length && !stop){
+        const e = queue.shift();
+        try{ await idb.put({ key: e.key, meta: e.meta, v: await descFromUrl(e.meta.img) }); }
+        catch(err){
+          fails++;
+          if(fails >= 6 && fails > done) stop = new Error('Card images could not be read (' + (err.message || err) + '). The image server may block other sites. See the notes in the reply for a fix.');
+        }
+        done++; setLibUI(`Learning card art… ${done.toLocaleString()} of ${todo.toLocaleString()}`, 0.1 + 0.9 * done / todo);
+      }
+    };
+    await Promise.all(Array.from({ length: 6 }, worker));
+    if(stop) throw stop;
+    await loadLibrary(); toast('Card library ready.');
+  }catch(e){
+    setLibUI('Library build stopped: ' + (e.message || e), null); await loadLibrary().catch(() => {});
+    if(!lib.n) setLibUI('Library build stopped: ' + (e.message || e), null);
   }finally{
-    scanning = false;
+    building = false; $('#libBtn').disabled = false;
   }
 }
 
-/* ---------- manual search ---------- */
+/* ---------- OpenCV card detector ---------- */
+const engine = { cv: 'idle', loading: null };
+function setEngineUI(s){ $('#engineStatus').textContent = s; }
+async function loadCV(){
+  if(engine.cv === 'ready') return true;
+  if(engine.loading) return engine.loading;
+  engine.cv = 'loading'; setEngineUI('Loading the card finder (about 10 MB, first time only)…');
+  engine.loading = (async () => {
+    try{
+      await loadScript('https://docs.opencv.org/4.8.0/opencv.js');
+      let c = window.cv;
+      if(c && typeof c.then === 'function'){ c = await c; window.cv = c; }
+      if(!(c && c.Mat)){
+        await new Promise((res, rej) => { const to = setTimeout(() => rej(new Error('timed out')), 60000); window.cv.onRuntimeInitialized = () => { clearTimeout(to); res(); }; });
+      }
+      engine.cv = 'ready'; setEngineUI('Card finder ready.'); return true;
+    }catch(e){
+      engine.cv = 'failed'; setEngineUI('Card finder did not load (' + (e.message || e) + '). Use Draw box to read cards by hand.'); return false;
+    }
+  })();
+  return engine.loading;
+}
+async function initEngine(){
+  await loadLibrary();
+  if(cfg.autoDetect) loadCV();
+}
+
+const dcanvas = document.createElement('canvas');
+const dctx = dcanvas.getContext('2d', { willReadFrequently: true });
+const scratch = document.createElement('canvas');
+const sctx = scratch.getContext('2d', { willReadFrequently: true });
+
+function detectQuads(video){
+  const cv = window.cv, vw = video.videoWidth, vh = video.videoHeight;
+  const W = 480, H = Math.round(W * vh / vw), s = W / vw;
+  dcanvas.width = W; dcanvas.height = H; dctx.drawImage(video, 0, 0, W, H);
+  const src = cv.imread(dcanvas), gray = new cv.Mat(), blur = new cv.Mat(), edges = new cv.Mat();
+  const kernel = cv.Mat.ones(3, 3, cv.CV_8U), contours = new cv.MatVector(), hier = new cv.Mat();
+  const found = [];
+  try{
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    cv.GaussianBlur(gray, blur, new cv.Size(5, 5), 0);
+    cv.Canny(blur, edges, 30, 90);
+    cv.dilate(edges, edges, kernel, new cv.Point(-1, -1), 1, cv.BORDER_CONSTANT, cv.morphologyDefaultBorderValue());
+    cv.findContours(edges, contours, hier, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+    const minA = 0.008 * W * H, maxA = 0.5 * W * H;
+    for(let i = 0; i < contours.size(); i++){
+      const c = contours.get(i);
+      const area = cv.contourArea(c);
+      if(area >= minA && area <= maxA){
+        const hull = new cv.Mat(); cv.convexHull(c, hull, false, true);
+        const peri = cv.arcLength(hull, true);
+        for(const eps of [0.03, 0.05]){
+          const ap = new cv.Mat(); cv.approxPolyDP(hull, ap, eps * peri, true);
+          if(ap.rows === 4){
+            const d = ap.data32S, pts = [[d[0], d[1]], [d[2], d[3]], [d[4], d[5]], [d[6], d[7]]];
+            const q = orderQuad(pts), w = (dist(q[0], q[1]) + dist(q[3], q[2])) / 2, h = (dist(q[0], q[3]) + dist(q[1], q[2])) / 2;
+            const ratio = Math.min(w, h) / Math.max(w, h);
+            if(ratio >= 0.55 && ratio <= 0.9) found.push({ q, area });
+            ap.delete(); break;
+          }
+          ap.delete();
+        }
+        hull.delete();
+      }
+      c.delete();
+    }
+  }finally{
+    [src, gray, blur, edges, kernel, contours, hier].forEach(m => m.delete());
+  }
+  found.sort((a, b) => b.area - a.area);
+  const kept = [];
+  for(const f of found){
+    const cx = f.q.reduce((a, p) => a + p[0], 0) / 4, cy = f.q.reduce((a, p) => a + p[1], 0) / 4;
+    if(kept.every(k => Math.hypot(cx - k.cx, cy - k.cy) > 0.25 * Math.sqrt(k.area))) kept.push({ ...f, cx, cy });
+    if(kept.length >= 6) break;
+  }
+  return kept.map(k => k.q.map(p => [p[0] / s, p[1] / s]));
+}
+
+/* ---------- tracking and reading cards ---------- */
+const centerOf = q => [q.reduce((a, p) => a + p[0], 0) / 4, q.reduce((a, p) => a + p[1], 0) / 4];
+function updateTracks(t, quads, vh){
+  const tr = t.tracks, used = new Set(), maxD = 0.12 * vh;
+  quads.forEach(q => {
+    const c = centerOf(q); let best = -1, bd = 1e9;
+    tr.forEach((k, i) => { if(used.has(i)) return; const d = dist(c, k.center); if(d < bd){ bd = d; best = i; } });
+    if(best >= 0 && bd < maxD){
+      const k = tr[best]; used.add(best);
+      k.stable = bd < 0.012 * vh ? k.stable + 1 : 0;
+      k.quad = k.quad.map((p, i) => [(p[0] + q[i][0]) / 2, (p[1] + q[i][1]) / 2]);
+      k.center = centerOf(k.quad); k.missed = 0;
+    }else{
+      tr.push({ id: ++t.tid, quad: q, center: c, stable: 0, missed: 0, votes: [], attempts: 0, recCenter: null, confirmed: null });
+      used.add(tr.length - 1);
+    }
+  });
+  tr.forEach((k, i) => { if(!used.has(i)) k.missed++; });
+  const gone = tr.filter(k => k.missed >= 4);
+  gone.forEach(k => onTableDel(t.id + ':' + k.id));
+  t.tracks = tr.filter(k => k.missed < 4);
+}
+
+function grabQuad(video, quad){
+  const vw = video.videoWidth, vh = video.videoHeight, m = 6;
+  const xs = quad.map(p => p[0]), ys = quad.map(p => p[1]);
+  const x0 = Math.max(0, Math.floor(Math.min(...xs)) - m), y0 = Math.max(0, Math.floor(Math.min(...ys)) - m);
+  const x1 = Math.min(vw, Math.ceil(Math.max(...xs)) + m), y1 = Math.min(vh, Math.ceil(Math.max(...ys)) + m);
+  const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
+  scratch.width = w; scratch.height = h; sctx.drawImage(video, x0, y0, w, h, 0, 0, w, h);
+  const id = sctx.getImageData(0, 0, w, h);
+  return { img: { width: w, height: h, data: id.data }, quad: quad.map(p => [p[0] - x0, p[1] - y0]) };
+}
+function readCardFrom(video, quad){
+  const q = portraitQuad(quad.map(p => p.slice()));
+  const { img, quad: local } = grabQuad(video, q);
+  return recognize(warp(img, local, 2), lib);
+}
+
+async function readQuad(t, quad, manual){
+  if(!lib.n){ toast('Build the card library first. Recognition compares cards against it.'); return; }
+  if(!t.video.videoWidth){ toast('Video is not ready yet.'); return; }
+  const res = readCardFrom(t.video, quad);
+  if(!res || !res.list.length){ $('#scanStatus').textContent = 'Could not read that card.'; return; }
+  const by = (players.get(t.id) || {}).name || 'Player';
+  showReading(res, true);
+  const top = res.list[0], ok = top.score >= cfg.strict;
+  showCard(top.meta);
+  if(ok){
+    onTableSet(t.id + ':m' + Date.now(), top.meta, by, top.score);
+    if(cfg.autoShare && t.id === 'me') shareCard(top.meta);
+  }
+}
+
+function showReading(res, manual){
+  const top = res.list[0], pct = Math.round(top.score * 100);
+  const th = $('#scanThumb'); th.hidden = false;
+  const g = th.getContext('2d'), tmp = document.createElement('canvas'); tmp.width = CW; tmp.height = CH;
+  tmp.getContext('2d').putImageData(new ImageData(res.img.data, CW, CH), 0, 0);
+  g.drawImage(tmp, 0, 0, th.width, th.height);
+  g.lineWidth = 1.5;
+  [[REG.tl, '#8fd19e'], [REG.tr, '#8fd19e'], [REG.art, '#d6ab52']].forEach(([r, col]) => {
+    g.strokeStyle = col; g.strokeRect(r[0] * th.width, r[1] * th.height, (r[2] - r[0]) * th.width, (r[3] - r[1]) * th.height);
+  });
+  const agree = [];
+  const mk = elemKey(top.meta), ck = costKey(top.meta);
+  if(res.element) agree.push(res.element.key === mk ? `element ${title(mk)}` : `element read as ${title(res.element.key)}`);
+  if(res.cost) agree.push(res.cost.key === ck ? costText(ck) : `cost read as ${costText(res.cost.key)}`);
+  const st = $('#scanStatus');
+  st.classList.toggle('good', top.score >= cfg.strict);
+  st.textContent = `${top.meta.name}, ${pct}% match. Corner symbols: ${agree.length ? agree.join(', ') : 'unclear'}. Compared ${res.candidates} of ${lib.n.toLocaleString()} cards${res.flipped ? ' (card was upside down)' : ''}.`
+    + (top.score < cfg.strict ? ' Below your strictness setting, so it was not announced.' : '');
+  const picks = $('#picks'); picks.innerHTML = '';
+  res.list.slice(0, 4).forEach((m, i) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'btn';
+    b.textContent = `${m.meta.name} ${Math.round(m.score * 100)}%`; b.setAttribute('aria-pressed', i === 0);
+    b.onclick = () => { [...picks.children].forEach(x => x.setAttribute('aria-pressed', 'false')); b.setAttribute('aria-pressed', 'true'); showCard(m.meta); };
+    picks.appendChild(b);
+  });
+}
+
+function recognizeTrack(t, k){
+  k.attempts++; k.recCenter = k.center.slice();
+  const res = readCardFrom(t.video, k.quad);
+  if(!res || !res.list.length) return;
+  const top = res.list[0], second = res.list[1];
+  const ok = top.score >= cfg.strict && (!second || top.score - second.score >= 0.015);
+  if(!ok){ k.votes = []; return; }
+  k.votes.push(top.meta.slug);
+  const last2 = k.votes.slice(-2);
+  if(last2.length === 2 && last2[0] === last2[1] && (!k.confirmed || k.confirmed.meta.slug !== top.meta.slug)){
+    k.confirmed = { meta: top.meta, score: top.score };
+    const by = (players.get(t.id) || {}).name || 'Player';
+    onTableSet(t.id + ':' + k.id, top.meta, by, top.score);
+    showReading(res, false);
+    showCard(top.meta);
+    if(cfg.autoShare && t.id === 'me') shareCard(top.meta);
+  }else if(k.confirmed && k.confirmed.meta.slug === top.meta.slug){
+    k.confirmed.score = top.score;
+  }
+}
+
+let busy = false;
+async function tick(){
+  if(busy || document.hidden || !cfg.autoDetect || $('#tableView').hidden || !lib.n) return;
+  if(engine.cv !== 'ready'){ if(engine.cv === 'idle') loadCV(); return; }
+  busy = true;
+  try{
+    for(const t of tiles.values()){
+      if(t.id !== 'me' && !cfg.allCams) continue;
+      const v = t.video; if(!v.videoWidth || v.readyState < 2) continue;
+      const quads = detectQuads(v);
+      updateTracks(t, quads, v.videoHeight);
+      for(const k of t.tracks){
+        if(k.missed || k.stable < 1) continue;
+        const moved = k.recCenter ? dist(k.center, k.recCenter) > 0.03 * v.videoHeight : false;
+        if(moved){ k.confirmed = null; k.votes = []; k.attempts = 0; onTableDel(t.id + ':' + k.id); }
+        if(!k.confirmed && (k.attempts < 5 || moved)){ recognizeTrack(t, k); break; }
+      }
+      drawOverlay(t);
+    }
+  }catch(e){ console.warn('detect', e); }
+  finally{ busy = false; }
+}
+setInterval(tick, 500);
+
+/* ---------- manual name search ---------- */
 let findT;
 $('#findIn').addEventListener('input', e => {
   clearTimeout(findT);
@@ -859,8 +1298,10 @@ $('#findIn').addEventListener('input', e => {
 /* ---------- wiring ---------- */
 $('#nameIn').value = me.name;
 $('#qualSel').value = cfg.quality;
-$('#scanSize').value = cfg.scan;
+$('#strict').value = cfg.strict;
 $('#autoShare').checked = cfg.autoShare;
+$('#autoDetect').checked = cfg.autoDetect;
+$('#allCams').checked = cfg.allCams;
 const hashCode = (location.hash || '').replace('#', '').toUpperCase().slice(0, 5);
 if(hashCode) $('#codeIn').value = hashCode;
 
@@ -873,8 +1314,14 @@ $('#micBtn').onclick = e => {
   cam.mic = !cam.mic; if(cam.audioTrack) cam.audioTrack.enabled = cam.mic;
   e.target.textContent = cam.mic ? 'Mute mic' : 'Unmute mic'; e.target.setAttribute('aria-pressed', !cam.mic);
 };
-$('#scanSize').oninput = e => { cfg.scan = parseFloat(e.target.value); store.set('scan', cfg.scan); };
+$('#strict').oninput = e => { cfg.strict = parseFloat(e.target.value); store.set('strict', cfg.strict); };
 $('#autoShare').onchange = e => { cfg.autoShare = e.target.checked; store.set('auto', cfg.autoShare ? '1' : '0'); };
+$('#autoDetect').onchange = e => {
+  cfg.autoDetect = e.target.checked; store.set('detect', cfg.autoDetect ? '1' : '0');
+  if(cfg.autoDetect) loadCV(); else tiles.forEach(t => { t.tracks.forEach(k => onTableDel(t.id + ':' + k.id)); t.tracks = []; drawOverlay(t); });
+};
+$('#allCams').onchange = e => { cfg.allCams = e.target.checked; store.set('allcams', cfg.allCams ? '1' : '0'); };
+$('#libBtn').onclick = buildLibrary;
 
 $('#startTable').onclick = () => enterTable(newCode(), true);
 $('#joinTable').onclick = () => {
