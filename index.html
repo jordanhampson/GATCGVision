@@ -169,7 +169,7 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
       <button class="btn small" id="micBtn" aria-pressed="false">Mute mic</button>
       <label class="opt"><input type="checkbox" id="autoDetect"> Find cards automatically</label>
       <label class="opt"><input type="checkbox" id="allCams"> Also read other cameras</label>
-      <label class="opt">Match strictness <input type="range" id="strict" min="0.2" max="0.8" step="0.01"></label>
+      <label class="opt">Match strictness <input type="range" id="strict" min="0.1" max="0.8" step="0.01"></label>
       <label class="opt"><input type="checkbox" id="autoShare"> Show recognized cards to the table</label>
     </div>
   </section>
@@ -248,7 +248,7 @@ const loadScript = src => new Promise((res, rej) => {
 const cfg = {
   api: store.get('api', 'https://api.gatcg.com'),
   index: 'https://index.gatcg.com',
-  strict: parseFloat(store.get('strict', '0.45')) || 0.45,
+  strict: parseFloat(store.get('strict2', '0.30')) || 0.30,
   autoShare: store.get('auto', '1') === '1',
   autoDetect: store.get('detect', '1') === '1',
   allCams: store.get('allcams', '0') === '1',
@@ -732,7 +732,7 @@ function startEngine(){
   eng.worker.onmessage = ev => {
     const m = ev.data;
     if(m.type === 'lib'){
-      if(m.error) setLibUI('Card library not found (' + m.error + '). Generate it with the GitHub Action or tools/build-library.mjs.');
+      if(m.error) setLibUI('Card library not ready (' + m.error + '). Generate it with the GitHub Action or tools/build-library.mjs.');
       else { lib.n = m.n; lib.unique = m.unique; eng.libOk = true; setLibUI(`${m.unique.toLocaleString()} cards ready to recognize.`, true); }
     }else if(m.type === 'cv'){
       eng.cvOk = m.ok;
@@ -841,7 +841,7 @@ function showReading(res){
   if(res.cost) agree.push(res.cost.key === ck ? costText(ck) : `cost read as ${costText(res.cost.key)}`);
   const st = $('#scanStatus');
   st.classList.toggle('good', top.score >= cfg.strict);
-  st.textContent = `${top.meta.name}, ${pct}% match. Corner symbols: ${agree.length ? agree.join(', ') : 'unclear'}. Checked all ${lib.n.toLocaleString()} cards, compared ${res.candidates} closely${res.flipped ? ' (card was upside down)' : ''}.`
+  st.textContent = `${top.meta.name}, ${pct}% match. Corner symbols: ${agree.length ? agree.join(', ') : 'unclear'}. Matched by perceptual hash against ${lib.n.toLocaleString()} cards${res.flipped ? ' (card was upside down)' : ''}.`
     + (top.score < cfg.strict ? ' Below your strictness setting, so it was not announced.' : '');
   const picks = $('#picks'); picks.innerHTML = '';
   res.list.slice(0, 4).forEach((m, i) => {
@@ -858,7 +858,7 @@ async function recognizeTrack(t, k){
   const res = await readCardAsync(t.video, k.quad);
   if(!res || !res.list.length || !t.tracks.includes(k)) return;
   const top = res.list[0], second = res.list[1];
-  const ok = top.score >= cfg.strict && (!second || top.score - second.score >= 0.015);
+  const ok = top.score >= cfg.strict && (!second || top.score - second.score >= 0.04);
   k.nextRead = performance.now() + (ok || k.attempts < 4 ? 0 : 600);
   if(!ok) return;
   const slug = top.meta.slug;
@@ -972,7 +972,7 @@ $('#micBtn').onclick = e => {
   cam.mic = !cam.mic; if(cam.audioTrack) cam.audioTrack.enabled = cam.mic;
   e.target.textContent = cam.mic ? 'Mute mic' : 'Unmute mic'; e.target.setAttribute('aria-pressed', !cam.mic);
 };
-$('#strict').oninput = e => { cfg.strict = parseFloat(e.target.value); store.set('strict', cfg.strict); };
+$('#strict').oninput = e => { cfg.strict = parseFloat(e.target.value); store.set('strict2', cfg.strict); };
 $('#autoShare').onchange = e => { cfg.autoShare = e.target.checked; store.set('auto', cfg.autoShare ? '1' : '0'); };
 $('#autoDetect').onchange = e => {
   cfg.autoDetect = e.target.checked; store.set('detect', cfg.autoDetect ? '1' : '0');

@@ -1,17 +1,26 @@
-// Archive Table: card matching engine. Shared by the page and tools/build-library.mjs.
-
-const CW = 200, CH = 280, DIM = 1680;
+// Archive Table: card matching engine (perceptual hashing). Shared by the page, the worker
+// and tools/build-library.mjs.
+const CW = 200, CH = 280;
 // Card layout regions as fractions of the card: [x0, y0, x1, y1]
-const REG = { art: [0.07, 0.13, 0.93, 0.55], tl: [0.02, 0.015, 0.22, 0.115], tr: [0.78, 0.015, 0.98, 0.115] };
-const GRID = { art: [20, 14], cor: [14, 10] };
-// Vector layout: artG 280 | artC 560 | tlG 140 | tlC 280 | trG 140 | trC 280
-const OFF = { artG: 0, artC: 280, tlG: 840, tlC: 980, trG: 1260, trC: 1400 };
-const LEN = { artG: 280, artC: 560, tlG: 140, tlC: 280, trG: 140, trC: 280 };
+const REG = { art: [0.07, 0.13, 0.93, 0.55], tl: [0.02, 0.015, 0.22, 0.115], tr: [0.78, 0.015, 0.98, 0.115], whole: [0.03, 0.03, 0.97, 0.97] };
+// Perceptual hashes are taken of a 32x32 grid per region, keeping the 8x8 lowest DCT frequencies
+// (63 bits = 2 words). Channels: 0 = brightness, 1 = red-green, 2 = blue-yellow. Colour hashes keep
+// art that has the same light/dark layout but different colours apart.
+const GRIDN = 32, KEEP = 8, SLOT_BITS = 63;
+const SLOTS = [
+  { key: 'artY', reg: 'art', ch: 0 }, { key: 'artU', reg: 'art', ch: 1 }, { key: 'artV', reg: 'art', ch: 2 },
+  { key: 'tlY', reg: 'tl', ch: 0 },
+  { key: 'trY', reg: 'tr', ch: 0 }, { key: 'trU', reg: 'tr', ch: 1 }, { key: 'trV', reg: 'tr', ch: 2 },
+  { key: 'wholeY', reg: 'whole', ch: 0 }
+];
+const SLOT_AT = {}; SLOTS.forEach((s, i) => SLOT_AT[s.key] = i * 2);   // word offset of each slot
+const NW = SLOTS.length * 2;                                         // 16 words = 64 bytes per card
 
-function cells(img, rect, gw, gh, dx, dy){
-  const W = img.width, H = img.height, d = img.data;
+// Three grids (brightness, red-green, blue-yellow) of one region.
+function cells3(img, rect, dx, dy){
+  const W = img.width, H = img.height, d = img.data, gw = GRIDN, gh = GRIDN;
   const x0 = (rect[0] + dx) * W, y0 = (rect[1] + dy) * H, x1 = (rect[2] + dx) * W, y1 = (rect[3] + dy) * H;
-  const out = new Float32Array(gw * gh * 3);
+  const Y = new Float32Array(gw * gh), U = new Float32Array(gw * gh), V = new Float32Array(gw * gh);
   for(let cy = 0; cy < gh; cy++){
     const ya = Math.max(0, Math.min(H - 1, Math.floor(y0 + (y1 - y0) * cy / gh)));
     const yb = Math.min(H, Math.max(ya + 1, Math.ceil(y0 + (y1 - y0) * (cy + 1) / gh)));
@@ -20,43 +29,46 @@ function cells(img, rect, gw, gh, dx, dy){
       const xb = Math.min(W, Math.max(xa + 1, Math.ceil(x0 + (x1 - x0) * (cx + 1) / gw)));
       let r = 0, g = 0, b = 0, n = 0;
       for(let y = ya; y < yb; y++) for(let x = xa; x < xb; x++){ const p = (y * W + x) * 4; r += d[p]; g += d[p + 1]; b += d[p + 2]; n++; }
-      if(!n) n = 1;
-      const o = (cy * gw + cx) * 3; out[o] = r / n; out[o + 1] = g / n; out[o + 2] = b / n;
+      n = n || 1; r /= n; g /= n; b /= n;
+      const o = cy * gw + cx; Y[o] = 0.299 * r + 0.587 * g + 0.114 * b; U[o] = r - g; V[o] = b - (r + g) / 2;
     }
   }
+  return [Y, U, V];
+}
+let COS = null;
+function cosTable(){
+  if(COS) return COS; COS = new Float32Array(KEEP * GRIDN);
+  for(let u = 0; u < KEEP; u++) for(let x = 0; x < GRIDN; x++) COS[u * GRIDN + x] = Math.cos(Math.PI * (2 * x + 1) * u / (2 * GRIDN));
+  return COS;
+}
+// Perceptual hash of one grid: 2D DCT, keep low frequencies, bit = coefficient above the median.
+function hashGrid(g){
+  const n = GRIDN, k = KEEP, C = cosTable(), T = new Float32Array(k * n), co = new Float32Array(k * k);
+  for(let u = 0; u < k; u++) for(let x = 0; x < n; x++){ let s = 0; for(let y = 0; y < n; y++) s += C[u * n + y] * g[y * n + x]; T[u * n + x] = s; }
+  for(let u = 0; u < k; u++) for(let v = 0; v < k; v++){ let s = 0; for(let x = 0; x < n; x++) s += T[u * n + x] * C[v * n + x]; co[u * k + v] = s; }
+  const ac = Array.from(co.subarray(1)).sort((a, b) => a - b);
+  const med = (ac[(ac.length - 1) >> 1] + ac[ac.length >> 1]) / 2;
+  const words = new Uint32Array(2);
+  for(let i = 1; i < k * k; i++) if(co[i] > med) words[i >> 5] |= (1 << (i & 31));
+  return words;
+}
+// Hash every slot of a straightened CW x CH card (RGBA {width,height,data}); optional shift in card fractions.
+function fingerprint(img, dx, dy, regs){
+  dx = dx || 0; dy = dy || 0;
+  const out = new Uint32Array(NW), grids = {};
+  SLOTS.forEach((s, i) => { if(regs && regs.indexOf(s.reg) < 0) return; const g = grids[s.reg] || (grids[s.reg] = cells3(img, REG[s.reg], dx, dy)); out.set(hashGrid(g[s.ch]), i * 2); });
   return out;
 }
-function unit(v){
-  let m = 0; for(let i = 0; i < v.length; i++) m += v[i]; m /= v.length;
-  let n = 0; for(let i = 0; i < v.length; i++){ v[i] -= m; n += v[i] * v[i]; }
-  n = Math.sqrt(n);
-  if(n < 1e-6) v.fill(0); else for(let i = 0; i < v.length; i++) v[i] /= n;
-  return v;
-}
-function vecs(c, gw, gh){
-  const n = gw * gh, G = new Float32Array(n), C1 = new Float32Array(n), C2 = new Float32Array(n);
-  for(let i = 0; i < n; i++){
-    const r = c[i * 3], g = c[i * 3 + 1], b = c[i * 3 + 2];
-    G[i] = 0.299 * r + 0.587 * g + 0.114 * b; C1[i] = r - g; C2[i] = b - (r + g) / 2;
-  }
-  unit(G); unit(C1); unit(C2);
-  const C = new Float32Array(n * 2), k = Math.SQRT1_2;
-  for(let i = 0; i < n; i++){ C[i] = C1[i] * k; C[n + i] = C2[i] * k; }
-  return [G, C];
-}
-function describe(img, dx, dy){
-  const out = new Float32Array(DIM); let o = 0;
-  for(const [rect, grid] of [[REG.art, GRID.art], [REG.tl, GRID.cor], [REG.tr, GRID.cor]]){
-    const [g, c] = vecs(cells(img, rect, grid[0], grid[1], dx, dy), grid[0], grid[1]);
-    out.set(g, o); o += g.length; out.set(c, o); o += c.length;
-  }
-  return out;
-}
+function pop(x){ x = x - ((x >>> 1) & 0x55555555); x = (x & 0x33333333) + ((x >>> 2) & 0x33333333); return Math.imul((x + (x >>> 4)) & 0x0F0F0F0F, 0x01010101) >>> 24; }
+const hamSlot = (H, base, slot, q, qo) => pop((H[base + slot] ^ q[qo]) >>> 0) + pop((H[base + slot + 1] ^ q[qo + 1]) >>> 0);
+
 function rot180(img){
   const n = img.width * img.height, out = new Uint8ClampedArray(n * 4), d = img.data;
   for(let i = 0; i < n; i++){ const j = n - 1 - i; out[i*4] = d[j*4]; out[i*4+1] = d[j*4+1]; out[i*4+2] = d[j*4+2]; out[i*4+3] = 255; }
   return { width: img.width, height: img.height, data: out };
 }
+
+// ---- perspective warp in plain JS (used when OpenCV is not available) ----
 function gauss(A, b){
   const n = 8;
   for(let i = 0; i < n; i++){
@@ -86,16 +98,13 @@ function warp(src, quad, ss){
   const sample = (X, Y, acc) => {
     X = Math.max(0, Math.min(W - 1.001, X - 0.5)); Y = Math.max(0, Math.min(H - 1.001, Y - 0.5));
     const x0 = X | 0, y0 = Y | 0, fx = X - x0, fy = Y - y0, p = (y0 * W + x0) * 4, q = p + W * 4;
-    for(let c = 0; c < 3; c++){
-      acc[c] += (d[p + c] * (1 - fx) + d[p + 4 + c] * fx) * (1 - fy) + (d[q + c] * (1 - fx) + d[q + 4 + c] * fx) * fy;
-    }
+    for(let c = 0; c < 3; c++) acc[c] += (d[p + c] * (1 - fx) + d[p + 4 + c] * fx) * (1 - fy) + (d[q + c] * (1 - fx) + d[q + 4 + c] * fx) * fy;
   };
   const acc = [0, 0, 0];
   for(let v = 0; v < CH; v++) for(let u = 0; u < CW; u++){
     acc[0] = acc[1] = acc[2] = 0;
     for(let sy = 0; sy < ss; sy++) for(let sx = 0; sx < ss; sx++){
-      const x = u + (sx + 0.5) / ss, y = v + (sy + 0.5) / ss;
-      const w = h[6] * x + h[7] * y + 1;
+      const x = u + (sx + 0.5) / ss, y = v + (sy + 0.5) / ss, w = h[6] * x + h[7] * y + 1;
       sample((h[0] * x + h[1] * y + h[2]) / w, (h[3] * x + h[4] * y + h[5]) / w, acc);
     }
     const o = (v * CW + u) * 4, k = ss * ss;
@@ -103,12 +112,12 @@ function warp(src, quad, ss){
   }
   return { width: CW, height: CH, data: out };
 }
+
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 function orderQuad(pts){
   const s = pts.map(p => p[0] + p[1]), d = pts.map(p => p[1] - p[0]);
   const idx = a => a.indexOf(Math.min(...a)), idxMax = a => a.indexOf(Math.max(...a));
-  const tl = pts[idx(s)], br = pts[idxMax(s)], tr = pts[idx(d)], bl = pts[idxMax(d)];
-  return [tl, tr, br, bl];
+  return [pts[idx(s)], pts[idx(d)], pts[idxMax(s)], pts[idxMax(d)]]; // TL, TR, BR, BL
 }
 // Make the quad portrait: if it is wider than tall, rotate corner order by a quarter turn.
 function portraitQuad(q){
@@ -127,12 +136,6 @@ function topK(arr, k){
   }
   return idx;
 }
-function dotSlice(M, base, q, off, len){ let s = 0; for(let k = 0; k < len; k++) s += M[base + off + k] * q[off + k]; return s; }
-const cornerScore = (M, base, q, side) => side === 'tl'
-  ? 0.55 * dotSlice(M, base, q, OFF.tlG, LEN.tlG) + 0.45 * dotSlice(M, base, q, OFF.tlC, LEN.tlC)
-  : 0.55 * dotSlice(M, base, q, OFF.trG, LEN.trG) + 0.45 * dotSlice(M, base, q, OFF.trC, LEN.trC);
-const artScore = (M, base, q) => 0.65 * dotSlice(M, base, q, OFF.artG, LEN.artG) + 0.35 * dotSlice(M, base, q, OFF.artC, LEN.artC);
-
 function vote(idxs, scores, meta, keyFn){
   const seen = new Set(), m = new Map(); let tot = 0;
   for(const i of idxs){
@@ -144,76 +147,78 @@ function vote(idxs, scores, meta, keyFn){
   let best = null; m.forEach((w, k) => { if(!best || w > best.w) best = { k, w }; });
   return best && tot > 0 ? { key: best.k, share: best.w / tot } : null;
 }
-// lib: { n, M (Float32Array n*DIM), meta[], ek[], ck[] }
-// Fast path: shortlist by art, then check corner symbols and art alignment on the shortlist only.
-const SHORTLIST = 240;
+
+// Slot weights (sum 1). Art counts most; the corner symbols (cost top-left, element top-right) and the
+// whole-card layout make up the rest.
+const SLOT_W = { artY: 0.34, artU: 0.12, artV: 0.12, tlY: 0.12, trY: 0.08, trU: 0.06, trV: 0.06, wholeY: 0.10 };
+// After the alignment-shift search, unrelated hashes still look about 55% alike, so scores are
+// stretched: 0 means "like a random card", 1 means "identical".
+const SIM_FLOOR = 0.55;
+const stretch = s => Math.max(0, Math.min(1, (s - SIM_FLOOR) / (1 - SIM_FLOOR)));
+const SHIFTS5 = [[0, 0], [0.012, 0], [-0.012, 0], [0, 0.012], [0, -0.012]];
+const SHIFTS9 = []; for(const dy of [-0.012, 0, 0.012]) for(const dx of [-0.012, 0, 0.012]) SHIFTS9.push([dx, dy]);
+
+// Hash the scan (with small alignment shifts) and compare to every card by Hamming distance.
+// lib: { n, H (Uint32Array n*NW), meta[], ek[], ck[] }
 function recognize(img0, lib){
-  const N = lib.n, M = lib.M; if(!N) return null;
-  // 1. cheap art scan of every card, in both orientations
-  const imgs = [img0, rot180(img0)], pre = [], q0 = [];
-  let bestO = 0, bestTop = -2;
+  const N = lib.n, H = lib.H; if(!N) return null;
+  const imgs = [img0, rot180(img0)];
+  let best = null;
   for(let oi = 0; oi < 2; oi++){
-    const q = describe(imgs[oi], 0, 0), s = new Float32Array(N); let top = -2;
-    for(let i = 0; i < N; i++){ const v = artScore(M, i * DIM, q); s[i] = v; if(v > top) top = v; }
-    pre.push(s); q0.push(q);
-    if(top > bestTop){ bestTop = top; bestO = oi; }
-    if(oi === 0 && top > 0.8) break; // clearly upright, skip the flipped check
+    const img = imgs[oi];
+    const artH = SHIFTS9.map(([dx, dy]) => fingerprint(img, dx, dy, ['art']));   // art slots read from these
+    const cornH = SHIFTS5.map(([dx, dy]) => fingerprint(img, dx, dy, ['tl', 'tr']));  // corner slots read from these
+    const mid = fingerprint(img, 0, 0, ['whole']);
+    const S = new Float32Array(N), sA = new Float32Array(N), sL = new Float32Array(N), sR = new Float32Array(N);
+    const oAY = SLOT_AT.artY, oAU = SLOT_AT.artU, oAV = SLOT_AT.artV, oTL = SLOT_AT.tlY, oRY = SLOT_AT.trY, oRU = SLOT_AT.trU, oRV = SLOT_AT.trV, oW = SLOT_AT.wholeY;
+    const wa = SLOT_W.artY + SLOT_W.artU + SLOT_W.artV, wr = SLOT_W.trY + SLOT_W.trU + SLOT_W.trV;
+    let top = 0;
+    for(let i = 0; i < N; i++){
+      const b = i * NW; let a = 1e9, r = 1e9, l = 1e9;
+      for(const q of artH){   // best alignment, all three art channels together
+        const d = (SLOT_W.artY * hamSlot(H, b, oAY, q, oAY) + SLOT_W.artU * hamSlot(H, b, oAU, q, oAU) + SLOT_W.artV * hamSlot(H, b, oAV, q, oAV)) / wa;
+        if(d < a) a = d;
+      }
+      for(const q of cornH){
+        const d = (SLOT_W.trY * hamSlot(H, b, oRY, q, oRY) + SLOT_W.trU * hamSlot(H, b, oRU, q, oRU) + SLOT_W.trV * hamSlot(H, b, oRV, q, oRV)) / wr;
+        if(d < r) r = d;
+        const e = hamSlot(H, b, oTL, q, oTL); if(e < l) l = e;
+      }
+      const w = hamSlot(H, b, oW, mid, oW);
+      sA[i] = 1 - a / SLOT_BITS; sR[i] = 1 - r / SLOT_BITS; sL[i] = 1 - l / SLOT_BITS;
+      S[i] = wa * sA[i] + wr * sR[i] + SLOT_W.tlY * sL[i] + SLOT_W.wholeY * (1 - w / SLOT_BITS);
+      if(S[i] > top) top = S[i];
+    }
+    if(!best || top > best.top) best = { top, S, sA, sL, sR, img, flipped: oi === 1 };
+    if(oi === 0 && top > 0.85) break;   // clearly upright, skip the flipped check
   }
-  const img = imgs[bestO], idx = topK(pre[bestO], Math.min(N, SHORTLIST));
-  // 2. corner symbols (cost top-left, element top-right) on the shortlist
-  const shifts5 = [[0, 0], [0.012, 0], [-0.012, 0], [0, 0.012], [0, -0.012]].map(([dx, dy]) => describe(img, dx, dy));
-  const tl = new Float32Array(N), tr = new Float32Array(N);
-  for(const i of idx){
-    const base = i * DIM; let a = -2, b = -2;
-    for(const q of shifts5){ const s1 = cornerScore(M, base, q, 'tl'), s2 = cornerScore(M, base, q, 'tr'); if(s1 > a) a = s1; if(s2 > b) b = s2; }
-    tl[i] = a; tr[i] = b;
-  }
-  const element = vote(topK(tr, Math.min(30, idx.length)), tr, lib.meta, i => lib.ek[i]);
-  const cost = vote(topK(tl, Math.min(30, idx.length)), tl, lib.meta, i => lib.ck[i]);
-  // 3. art with small alignment shifts, combined with both corners
-  const shifts9 = []; for(const dy of [-0.012, 0, 0.012]) for(const dx of [-0.012, 0, 0.012]) shifts9.push(describe(img, dx, dy));
-  const scored = [];
-  for(const i of idx){
-    const base = i * DIM; let a = -2;
-    for(const q of shifts9){ const s = artScore(M, base, q); if(s > a) a = s; }
-    scored.push({ i, art: a, tl: tl[i], tr: tr[i], score: 0.6 * a + 0.2 * tl[i] + 0.2 * tr[i] });
-  }
-  scored.sort((a, b) => b.score - a.score);
+  const { S, sA, sL, sR } = best;
+  const nl = Float32Array.from(sL, stretch), nr = Float32Array.from(sR, stretch);
+  const element = vote(topK(nr, Math.min(30, N)), nr, lib.meta, i => lib.ek[i]);
+  const cost = vote(topK(nl, Math.min(30, N)), nl, lib.meta, i => lib.ck[i]);
   const seen = new Set(), list = [];
-  for(const s of scored){ const slug = lib.meta[s.i].slug; if(seen.has(slug)) continue; seen.add(slug); list.push({ meta: lib.meta[s.i], ...s }); if(list.length >= 5) break; }
-  return { img, list, element: element && element.share >= 0.5 ? element : null, cost: cost && cost.share >= 0.5 ? cost : null,
-    candidates: idx.length, mode: 'art shortlist', flipped: bestO === 1 };
+  for(const i of topK(S, Math.min(N, 40))){
+    const slug = lib.meta[i].slug; if(seen.has(slug)) continue; seen.add(slug);
+    list.push({ meta: lib.meta[i], score: stretch(S[i]), art: stretch(sA[i]), tl: nl[i], tr: nr[i] });
+    if(list.length >= 5) break;
+  }
+  return { img: best.img, list, element: element && element.share >= 0.5 ? element : null, cost: cost && cost.share >= 0.5 ? cost : null,
+    candidates: N, mode: 'perceptual hash', flipped: best.flipped };
 }
 
-// ---- compact library file format: per card 6 float32 scales + 1680 int8 values ----
-const SEG = ['artG', 'artC', 'tlG', 'tlC', 'trG', 'trC'];
-const REC = 24 + DIM;
+// ---- compact library file: 14 x uint32 (little endian) per card ----
 function packLibrary(entries){
-  const bin = new Uint8Array(entries.length * REC), dv = new DataView(bin.buffer);
-  entries.forEach((e, i) => {
-    const base = i * REC;
-    SEG.forEach((s, j) => {
-      const off = OFF[s], len = LEN[s]; let m = 0;
-      for(let k = 0; k < len; k++) m = Math.max(m, Math.abs(e.v[off + k]));
-      const sc = m / 127 || 1e-9; dv.setFloat32(base + j * 4, sc, true);
-      for(let k = 0; k < len; k++) bin[base + 24 + off + k] = Math.round(e.v[off + k] / sc) & 0xff;
-    });
-  });
-  const json = { version: 1, dim: DIM, count: entries.length, built: new Date().toISOString(), meta: entries.map(e => e.meta) };
-  return { json, bin };
+  const bin = new Uint8Array(entries.length * NW * 4), dv = new DataView(bin.buffer);
+  entries.forEach((e, i) => { for(let w = 0; w < NW; w++) dv.setUint32((i * NW + w) * 4, e.h[w] >>> 0, true); });
+  return { json: { version: 2, words: NW, count: entries.length, built: new Date().toISOString(), meta: entries.map(e => e.meta) }, bin };
 }
 function unpackLibrary(json, buf){
+  if(json.version !== 2) throw new Error('library was built for an older version of the app. Run the Build card library workflow again');
   const n = json.count;
-  if(json.dim !== DIM || buf.byteLength !== n * REC) throw new Error('library files do not match this version of the app');
-  const dv = new DataView(buf), M = new Float32Array(n * DIM);
-  for(let i = 0; i < n; i++){
-    const base = i * REC, q = new Int8Array(buf, base + 24, DIM);
-    SEG.forEach((s, j) => {
-      const sc = dv.getFloat32(base + j * 4, true), off = OFF[s], len = LEN[s], o = i * DIM + off;
-      for(let k = 0; k < len; k++) M[o + k] = q[off + k] * sc;
-    });
-  }
-  return { n, M, meta: json.meta };
+  if(json.words !== NW || buf.byteLength !== n * NW * 4) throw new Error('library files do not match this version of the app');
+  const dv = new DataView(buf), H = new Uint32Array(n * NW);
+  for(let i = 0; i < n * NW; i++) H[i] = dv.getUint32(i * 4, true);
+  return { n, H, meta: json.meta };
 }
 
-if(typeof module !== 'undefined') module.exports = { describe, warp, recognize, orderQuad, portraitQuad, rot180, packLibrary, unpackLibrary, DIM, CW, CH, REG, OFF, LEN };
+if(typeof module !== 'undefined') module.exports = { fingerprint, recognize, warp, orderQuad, portraitQuad, rot180, packLibrary, unpackLibrary, NW, CW, CH, REG };

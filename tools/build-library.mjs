@@ -38,7 +38,7 @@ async function describeImage(imgPath){
   const { data } = await sharp(buf).resize(A.CW, A.CH, { fit: 'fill' }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
   const rgba = new Uint8ClampedArray(A.CW * A.CH * 4);
   for(let i = 0; i < A.CW * A.CH; i++){ rgba[i*4] = data[i*3]; rgba[i*4+1] = data[i*3+1]; rgba[i*4+2] = data[i*3+2]; rgba[i*4+3] = 255; }
-  return A.describe({ width: A.CW, height: A.CH, data: rgba }, 0, 0);
+  return A.fingerprint({ width: A.CW, height: A.CH, data: rgba }, 0, 0);
 }
 
 // 1. existing library (so reruns are incremental)
@@ -47,9 +47,9 @@ try{
   const json = JSON.parse(await fs.readFile(path.join(outDir, 'library.json'), 'utf8'));
   const bin = await fs.readFile(path.join(outDir, 'library.bin'));
   const u = A.unpackLibrary(json, bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength));
-  u.meta.forEach((m, i) => existing.set(m.key, { meta: m, v: u.M.slice(i * A.DIM, (i + 1) * A.DIM) }));
+  u.meta.forEach((m, i) => existing.set(m.key, { meta: m, v: u.H.slice(i * A.NW, (i + 1) * A.NW) }));
   console.log(`Existing library: ${existing.size} entries`);
-}catch(e){ console.log('No existing library, building from scratch.'); }
+}catch(e){ console.log('No usable existing library (' + e.message + '), building from scratch.'); }
 
 // 2. card list
 const wanted = []; let page = 1, total = 1;
@@ -85,7 +85,7 @@ const entries = [];
 for(const m of wanted){
   const old = existing.get(m.key), neu = result.get(m.key);
   const v = neu ? neu.v : old && old.v; if(!v) continue;
-  entries.push({ meta: m, v });
+  entries.push({ meta: m, h: v });
 }
 if(entries.length < 50) throw new Error('Fewer than 50 cards. Refusing to overwrite the library.');
 const { json, bin } = A.packLibrary(entries);
