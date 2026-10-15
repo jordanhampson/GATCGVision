@@ -2,7 +2,9 @@
 
 Webcam table for Grand Archive with automatic card recognition.
 
-How a card is recognized: the card is isolated from the mat (grayscale, Gaussian blur, threshold, external contours, four-corner filter by area and aspect ratio), its perspective is corrected with OpenCV, and perceptual hashes (DCT pHash) of the art, the cost corner and the element corner are matched to the library by Hamming distance.
+How a card is recognized: the card finder (plain JavaScript, nothing to download) converts the frame to grayscale, blurs it, thresholds it, finds external contours and fits four corners, filtered by area and aspect ratio. The outline is then snapped to the real card edges, the perspective is corrected to an upright card, and perceptual hashes (DCT pHash) of the art, the cost corner and the element corner are matched to the library by Hamming distance.
+
+If nothing is recognized, look at the chip in the top-left of your video and the **Card library** box on the right. They say whether the card library loaded, whether cards are being found, and how many.
 
 ## Put it on GitHub Pages
 1. Create a repository and upload everything in this folder, including `index.html`, `algo.js`, `worker.js`, the `tools` folder and the hidden `.github` folder (if the web uploader skips it, create `.github/workflows/library.yml` with Add file > Create new file).

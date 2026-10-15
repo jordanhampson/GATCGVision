@@ -124,6 +124,226 @@ function portraitQuad(q){
   const w = (dist(q[0], q[1]) + dist(q[3], q[2])) / 2, h = (dist(q[0], q[3]) + dist(q[1], q[2])) / 2;
   return w > h ? [q[3], q[0], q[1], q[2]] : q;
 }
+
+// ---- card finder in plain JS: grayscale -> blur -> threshold / edges -> external contours -> four corners ----
+function toGray(img){
+  const n = img.width * img.height, g = new Float32Array(n), d = img.data;
+  for(let i = 0; i < n; i++) g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+  return g;
+}
+function blur3(src, w, h){
+  const tmp = new Float32Array(src.length), out = new Float32Array(src.length);
+  for(let y = 0; y < h; y++) for(let x = 0; x < w; x++){
+    const o = y * w + x; tmp[o] = (src[o - (x > 0 ? 1 : 0)] + src[o] + src[o + (x < w - 1 ? 1 : 0)]) / 3;
+  }
+  for(let y = 0; y < h; y++) for(let x = 0; x < w; x++){
+    const o = y * w + x; out[o] = (tmp[o - (y > 0 ? w : 0)] + tmp[o] + tmp[o + (y < h - 1 ? w : 0)]) / 3;
+  }
+  return out;
+}
+function otsu(g){
+  const hist = new Float64Array(256); for(let i = 0; i < g.length; i++) hist[Math.max(0, Math.min(255, g[i] | 0))]++;
+  let sum = 0; for(let i = 0; i < 256; i++) sum += i * hist[i];
+  let wB = 0, sB = 0, best = 0, thr = 128; const total = g.length;
+  for(let i = 0; i < 256; i++){
+    wB += hist[i]; if(!wB) continue; const wF = total - wB; if(!wF) break;
+    sB += i * hist[i]; const mB = sB / wB, mF = (sum - sB) / wF, v = wB * wF * (mB - mF) * (mB - mF);
+    if(v > best){ best = v; thr = i; }
+  }
+  return thr;
+}
+function dilate3(m, w, h){
+  const tmp = new Uint8Array(m.length), out = new Uint8Array(m.length);
+  for(let y = 0; y < h; y++){ const r = y * w; for(let x = 0; x < w; x++){ const o = r + x; tmp[o] = m[o] | (x > 0 ? m[o - 1] : 0) | (x < w - 1 ? m[o + 1] : 0); } }
+  for(let y = 0; y < h; y++){ const r = y * w; for(let x = 0; x < w; x++){ const o = r + x; out[o] = tmp[o] | (y > 0 ? tmp[o - w] : 0) | (y < h - 1 ? tmp[o + w] : 0); } }
+  return out;
+}
+function erode3(m, w, h){
+  const tmp = new Uint8Array(m.length), out = new Uint8Array(m.length);
+  for(let y = 0; y < h; y++){ const r = y * w; for(let x = 1; x < w - 1; x++){ const o = r + x; tmp[o] = m[o] & m[o - 1] & m[o + 1]; } }
+  for(let y = 1; y < h - 1; y++){ const r = y * w; for(let x = 0; x < w; x++){ const o = r + x; out[o] = tmp[o] & tmp[o - w] & tmp[o + w]; } }
+  return out;
+}
+function hullOf(pts){
+  pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], up = [];
+  for(const p of pts){ while(lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  for(let i = pts.length - 1; i >= 0; i--){ const p = pts[i]; while(up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); }
+  lo.pop(); up.pop(); return lo.concat(up);
+}
+const polyAreaOf = q => { let s = 0; for(let i = 0; i < q.length; i++){ const a = q[i], b = q[(i + 1) % q.length]; s += a[0] * b[1] - b[0] * a[1]; } return Math.abs(s) / 2; };
+function lineX(a, b, c, d){   // intersection of line a-b with line c-d
+  const r = [b[0] - a[0], b[1] - a[1]], s = [d[0] - c[0], d[1] - c[1]], den = r[0] * s[1] - r[1] * s[0];
+  if(Math.abs(den) < 1e-9) return null;
+  const tt = ((c[0] - a[0]) * s[1] - (c[1] - a[1]) * s[0]) / den;
+  return [a[0] + tt * r[0], a[1] + tt * r[1]];
+}
+// Reduce a convex polygon to 4 corners by repeatedly replacing the shortest side with the
+// intersection of its two neighbours (keeps rounded card corners from being cut off).
+function reduceTo4(poly){
+  let P = poly.slice();
+  while(P.length > 4){
+    const n = P.length; let bi = -1, bA = Infinity, bp = null;
+    for(let i = 0; i < n; i++){
+      const a = P[(i - 1 + n) % n], b = P[i], c = P[(i + 1) % n], d = P[(i + 2) % n], X = lineX(a, b, d, c);
+      if(!X) continue;
+      if((X[0] - b[0]) * (b[0] - a[0]) + (X[1] - b[1]) * (b[1] - a[1]) <= 0) continue;
+      if((X[0] - c[0]) * (c[0] - d[0]) + (X[1] - c[1]) * (c[1] - d[1]) <= 0) continue;
+      const area = polyAreaOf([b, X, c]);
+      if(area < bA){ bA = area; bi = i; bp = X; }
+    }
+    if(bi < 0){ // fall back: drop the vertex that changes the shape least
+      let bv = 0, bt = Infinity;
+      for(let i = 0; i < n; i++){ const t2 = polyAreaOf([P[(i - 1 + n) % n], P[i], P[(i + 1) % n]]); if(t2 < bt){ bt = t2; bv = i; } }
+      P.splice(bv, 1); continue;
+    }
+    const j = (bi + 1) % n, next = [];
+    for(let k = 0; k < n; k++){ if(k === bi) next.push(bp); else if(k !== j) next.push(P[k]); }
+    P = next;
+  }
+  return P;
+}
+// Label connected blobs in a binary mask; keep the ones that are card-shaped.
+function blobQuads(mask, w, h, minA, maxA, hollow){
+  const out = [], lab = new Uint8Array(w * h), stack = new Int32Array(w * h), lst = new Int32Array(w * h);
+  for(let x = 0; x < w; x++){ mask[x] = 0; mask[(h - 1) * w + x] = 0; }
+  for(let y = 0; y < h; y++){ mask[y * w] = 0; mask[y * w + w - 1] = 0; }
+  const nb = [-w - 1, -w, -w + 1, -1, 1, w - 1, w, w + 1];
+  for(let s = 0; s < w * h; s++){
+    if(!mask[s] || lab[s]) continue;
+    let sp = 0, cnt = 0, minx = w, maxx = 0, miny = h, maxy = 0; stack[sp++] = s; lab[s] = 1;
+    while(sp){
+      const p = stack[--sp]; lst[cnt++] = p;
+      const x = p % w, y = (p / w) | 0;
+      if(x < minx) minx = x; if(x > maxx) maxx = x; if(y < miny) miny = y; if(y > maxy) maxy = y;
+      for(let k = 0; k < 8; k++){ const q = p + nb[k]; if(mask[q] && !lab[q]){ lab[q] = 1; stack[sp++] = q; } }
+    }
+    const bw = maxx - minx + 1, bh = maxy - miny + 1;
+    if(bw * bh < minA || bw * bh > maxA * 1.6 || cnt < 30) continue;
+    const bpts = [];
+    for(let i = 0; i < cnt; i++){
+      const p = lst[i], x = p % w, y = (p / w) | 0;
+      if(x <= 1 || y <= 1 || x >= w - 2 || y >= h - 2 || !mask[p - 1] || !mask[p + 1] || !mask[p - w] || !mask[p + w]) bpts.push([x, y]);
+    }
+    if(bpts.length < 8) continue;
+    const hull = hullOf(bpts); if(hull.length < 4) continue;
+    const hA = polyAreaOf(hull); if(hA < minA || hA > maxA) continue;
+    if(!hollow && cnt / hA < 0.6) continue;               // solid blobs must fill their hull
+    const q = orderQuad(reduceTo4(hull)), qA = polyAreaOf(q);
+    const qw = (dist(q[0], q[1]) + dist(q[3], q[2])) / 2, qh = (dist(q[0], q[3]) + dist(q[1], q[2])) / 2;
+    const ratio = Math.min(qw, qh) / Math.max(qw, qh);   // a card is about 5:7 = 0.71
+    if(ratio < 0.55 || ratio > 0.92 || hA / qA < 0.85 || qA > maxA * 1.1) continue;
+    out.push({ q, area: qA });
+  }
+  return out;
+}
+// Returns card outlines [[TL,TR,BR,BL], ...] in the coordinates of img (largest first).
+function findCards(img, maxFrac){
+  const w = img.width, h = img.height, minA = 0.008 * w * h, maxA = (maxFrac || 0.5) * w * h;
+  const g = blur3(toGray(img), w, h), n = w * h, found = [];
+  // (a) thresholds: card brighter than the mat, then darker
+  const thr = otsu(g), bright = new Uint8Array(n), dark = new Uint8Array(n);
+  for(let i = 0; i < n; i++){ bright[i] = g[i] > thr ? 1 : 0; dark[i] = g[i] <= thr ? 1 : 0; }
+  for(const m of [bright, dark]) found.push(...blobQuads(erode3(dilate3(m, w, h), w, h), w, h, minA, maxA, false));
+  // (b) strong edges, thickened: the outside of the edge blob is the card outline
+  const mag = new Float32Array(n); let sum = 0, sq = 0;
+  for(let y = 1; y < h - 1; y++) for(let x = 1; x < w - 1; x++){
+    const o = y * w + x;
+    const gx = g[o - w + 1] + 2 * g[o + 1] + g[o + w + 1] - g[o - w - 1] - 2 * g[o - 1] - g[o + w - 1];
+    const gy = g[o + w - 1] + 2 * g[o + w] + g[o + w + 1] - g[o - w - 1] - 2 * g[o - w] - g[o - w + 1];
+    const v = Math.abs(gx) + Math.abs(gy); mag[o] = v; sum += v; sq += v * v;
+  }
+  const mean = sum / n, sd = Math.sqrt(Math.max(0, sq / n - mean * mean)), et = Math.max(40, mean + 0.8 * sd);
+  const edge = new Uint8Array(n); for(let i = 0; i < n; i++) edge[i] = mag[i] > et ? 1 : 0;
+  found.push(...blobQuads(dilate3(edge, w, h), w, h, minA, maxA, true));
+  found.sort((a, b) => b.area - a.area);
+  const kept = [];
+  for(const f of found){
+    const cx = f.q.reduce((a, p) => a + p[0], 0) / 4, cy = f.q.reduce((a, p) => a + p[1], 0) / 4;
+    if(kept.every(k => Math.hypot(cx - k.cx, cy - k.cy) > 0.25 * Math.sqrt(k.area))) kept.push({ ...f, cx, cy });
+    if(kept.length >= 6) break;
+  }
+  return kept.map(k => k.q);
+}
+// Average-downscale an RGBA image to the given width.
+function downscale(img, W){
+  if(img.width <= W) return { img, s: 1 };
+  const s = W / img.width, H = Math.max(1, Math.round(img.height * s)), out = new Uint8ClampedArray(W * H * 4), d = img.data;
+  for(let y = 0; y < H; y++){
+    const ya = Math.floor(y / s), yb = Math.min(img.height, Math.max(ya + 1, Math.floor((y + 1) / s)));
+    for(let x = 0; x < W; x++){
+      const xa = Math.floor(x / s), xb = Math.min(img.width, Math.max(xa + 1, Math.floor((x + 1) / s)));
+      let r = 0, gg = 0, b = 0, c = 0;
+      for(let yy = ya; yy < yb; yy++) for(let xx = xa; xx < xb; xx++){ const p = (yy * img.width + xx) * 4; r += d[p]; gg += d[p + 1]; b += d[p + 2]; c++; }
+      const o = (y * W + x) * 4; out[o] = r / c; out[o + 1] = gg / c; out[o + 2] = b / c; out[o + 3] = 255;
+    }
+  }
+  return { img: { width: W, height: H, data: out }, s };
+}
+// Snap a rough quad to the real card edges: along each side, look for the outermost strong edge
+// perpendicular to the side, fit a straight line to those points, and intersect neighbouring lines.
+function refineByEdges(img, q){
+  const w = img.width, h = img.height, g = blur3(toGray(img), w, h);
+  const at = (x, y) => {
+    x = Math.max(0, Math.min(w - 1.001, x)); y = Math.max(0, Math.min(h - 1.001, y));
+    const x0 = x | 0, y0 = y | 0, fx = x - x0, fy = y - y0, o = y0 * w + x0;
+    return (g[o] * (1 - fx) + g[o + 1] * fx) * (1 - fy) + (g[o + w] * (1 - fx) + g[o + w + 1] * fx) * fy;
+  };
+  const cx = q.reduce((a, p) => a + p[0], 0) / 4, cy = q.reduce((a, p) => a + p[1], 0) / 4;
+  const side = Math.min(dist(q[0], q[1]), dist(q[1], q[2]), dist(q[2], q[3]), dist(q[3], q[0]));
+  const win = Math.max(4, 0.09 * side), step = 0.5, lines = [];
+  for(let e = 0; e < 4; e++){
+    const a = q[e], b = q[(e + 1) % 4], len = dist(a, b); if(len < 10) return null;
+    let nx = -(b[1] - a[1]) / len, ny = (b[0] - a[0]) / len;
+    if(nx * ((a[0] + b[0]) / 2 - cx) + ny * ((a[1] + b[1]) / 2 - cy) < 0){ nx = -nx; ny = -ny; }   // point outward
+    let pts = [];
+    const ns = Math.round(2 * win / step) + 1, prof = new Float32Array(ns);
+    for(let i = 0; i < 30; i++){
+      const t = 0.12 + 0.76 * i / 29, px = a[0] + (b[0] - a[0]) * t, py = a[1] + (b[1] - a[1]) * t;
+      for(let k = 0; k < ns; k++){ const s = -win + k * step; prof[k] = at(px + nx * s, py + ny * s); }
+      let mx = 0; const gr = new Float32Array(ns);
+      for(let k = 2; k < ns - 2; k++){ gr[k] = Math.abs(prof[k + 2] - prof[k - 2]); if(gr[k] > mx) mx = gr[k]; }
+      if(mx < 14) continue;
+      const need = Math.max(12, 0.18 * mx);   // black card borders have a weak outer and a strong inner edge
+      let pick = -1; for(let k = ns - 3; k >= 2; k--) if(gr[k] >= need){ pick = k; break; }   // outermost clear edge
+      if(pick < 0) continue;
+      let pk = pick; for(let k = Math.max(2, pick - 4); k < pick; k++) if(gr[k] > gr[pk]) pk = k;   // centre of that edge
+      const s = -win + pk * step; pts.push([px + nx * s, py + ny * s]);
+    }
+    if(pts.length < 10) return null;
+    let line = null;
+    for(let pass = 0; pass < 3; pass++){
+      const m = [pts.reduce((x, p) => x + p[0], 0) / pts.length, pts.reduce((x, p) => x + p[1], 0) / pts.length];
+      let sxx = 0, sxy = 0, syy = 0; for(const p of pts){ const dx = p[0] - m[0], dy = p[1] - m[1]; sxx += dx * dx; sxy += dx * dy; syy += dy * dy; }
+      const ang = 0.5 * Math.atan2(2 * sxy, sxx - syy), d = [Math.cos(ang), Math.sin(ang)];
+      line = { p: m, d };
+      const keep = pts.filter(p => Math.abs((p[0] - m[0]) * -d[1] + (p[1] - m[1]) * d[0]) <= 1.6);
+      if(keep.length < 8 || keep.length === pts.length) break; pts = keep;
+    }
+    lines.push(line);
+  }
+  const X = (l1, l2) => { const den = l1.d[0] * l2.d[1] - l1.d[1] * l2.d[0]; if(Math.abs(den) < 1e-6) return null;
+    const tt = ((l2.p[0] - l1.p[0]) * l2.d[1] - (l2.p[1] - l1.p[1]) * l2.d[0]) / den; return [l1.p[0] + tt * l1.d[0], l1.p[1] + tt * l1.d[1]]; };
+  const out = [X(lines[3], lines[0]), X(lines[0], lines[1]), X(lines[1], lines[2]), X(lines[2], lines[3])];
+  if(out.some((p, i) => !p || dist(p, q[i]) > 0.2 * side)) return null;
+  return out;
+}
+// Re-find the exact card outline inside a rough crop (a drawn box or a tracked card), at higher resolution.
+function refineQuad(img, guess){
+  const { img: small, s } = downscale(img, 320), ga = polyAreaOf(guess);
+  const gc = [guess.reduce((a, p) => a + p[0], 0) / 4, guess.reduce((a, p) => a + p[1], 0) / 4];
+  let coarse = null, bd = Infinity;
+  for(const q of findCards(small, 0.97)){
+    const full = q.map(p => [p[0] / s, p[1] / s]), a = polyAreaOf(full), c = [full.reduce((x, p) => x + p[0], 0) / 4, full.reduce((x, p) => x + p[1], 0) / 4];
+    const d = Math.hypot(c[0] - gc[0], c[1] - gc[1]);
+    if(a < ga * 0.35 || a > ga * 1.6 || d > 0.3 * Math.sqrt(ga)) continue;
+    if(d < bd){ bd = d; coarse = full; }
+  }
+  const start = coarse || guess;
+  return refineByEdges(img, start) || coarse;
+}
+
 function topK(arr, k){
   const idx = [];
   for(let i = 0; i < arr.length; i++){
@@ -221,4 +441,4 @@ function unpackLibrary(json, buf){
   return { n, H, meta: json.meta };
 }
 
-if(typeof module !== 'undefined') module.exports = { fingerprint, recognize, warp, orderQuad, portraitQuad, rot180, packLibrary, unpackLibrary, NW, CW, CH, REG };
+if(typeof module !== 'undefined') module.exports = { findCards, refineQuad, refineByEdges, downscale, polyAreaOf, fingerprint, recognize, warp, orderQuad, portraitQuad, rot180, packLibrary, unpackLibrary, NW, CW, CH, REG };

@@ -78,7 +78,10 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 .who{display:flex;flex-direction:column;min-width:0;flex:1}
 .who strong{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .who span{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.callout{position:absolute;left:12px;top:12px;width:min(34%,190px);border-radius:10px;overflow:hidden;border:2px solid var(--brass);background:#071312;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.chip2{position:absolute;left:10px;top:10px;background:rgba(7,19,18,.82);backdrop-filter:blur(4px);border:1px solid var(--line);padding:3px 10px;border-radius:999px;font-size:12.5px;color:var(--muted);pointer-events:none}
+.chip2.warn{color:#f0b9aa;border-color:rgba(229,112,90,.5)}
+.chip2:empty{display:none}
+.callout{position:absolute;left:12px;top:46px;width:min(34%,190px);border-radius:10px;overflow:hidden;border:2px solid var(--brass);background:#071312;box-shadow:0 8px 24px rgba(0,0,0,.5)}
 .callout img{display:block;width:100%}
 .callout span{display:block;padding:3px 8px;font-size:12px;font-weight:600;background:var(--brass);color:var(--brass-ink)}
 
@@ -346,6 +349,7 @@ function ensureTile(id){
     <div class="feed">
       <video autoplay playsinline></video>
       <canvas class="overlay"></canvas>
+      <div class="chip2"></div>
       <div class="hint" hidden>Drag a box around the card</div>
       <div class="callout" hidden><img alt=""><span></span></div>
     </div>
@@ -359,7 +363,7 @@ function ensureTile(id){
   const t2 = {
     id, root, rot: false, tracks: [], tid: 0, drag: null,
     video: root.querySelector('video'), feed: root.querySelector('.feed'), overlay: root.querySelector('.overlay'),
-    hint: root.querySelector('.hint'), callout: root.querySelector('.callout')
+    chip: root.querySelector('.chip2'), hint: root.querySelector('.hint'), callout: root.querySelector('.callout')
   };
   t2.video.muted = mine; t2.video.playsInline = true;
   root.addEventListener('click', e => onTileClick(t2, e));
@@ -433,19 +437,23 @@ function drawOverlay(t){
     g.beginPath(); q.forEach((p, i) => { const [x, y] = toDisplay(t, b, p[0], p[1]); i ? g.lineTo(x, y) : g.moveTo(x, y); });
     g.closePath(); g.setLineDash(dash || []); g.lineWidth = width; g.strokeStyle = color; g.stroke(); g.setLineDash([]);
   };
+  const tag = (q, label, solid) => {
+    const pts = q.map(p => toDisplay(t, b, p[0], p[1])), top = pts.reduce((a, p) => p[1] < a[1] ? p : a, pts[0]);
+    const w = g.measureText(label).width + 14, x = Math.max(2, Math.min(W - w - 2, top[0] - w / 2)), y = Math.max(2, top[1] - 26);
+    g.fillStyle = solid ? '#d6ab52' : 'rgba(7,19,18,.88)'; g.beginPath(); g.roundRect ? g.roundRect(x, y, w, 22, 6) : g.rect(x, y, w, 22); g.fill();
+    g.fillStyle = solid ? '#241a05' : '#e8efe9'; g.textBaseline = 'middle'; g.fillText(label, x + 7, y + 11.5);
+  };
   t.tracks.forEach(k => {
     if(k.missed > 3) return;
     const ok = !!k.confirmed;
-    poly(k.quad, ok ? '#d6ab52' : 'rgba(232,239,233,.8)', ok ? 3 : 2, ok ? null : [6, 5]);
-    const label = ok ? `${k.confirmed.meta.name}  ${Math.round(k.confirmed.score * 100)}%` : (k.attempts ? 'Reading…' : '');
-    if(label){
-      const pts = k.quad.map(p => toDisplay(t, b, p[0], p[1]));
-      const top = pts.reduce((a, p) => p[1] < a[1] ? p : a, pts[0]);
-      const w = g.measureText(label).width + 14, x = Math.max(2, Math.min(W - w - 2, top[0] - w / 2)), y = Math.max(2, top[1] - 26);
-      g.fillStyle = ok ? '#d6ab52' : 'rgba(7,19,18,.85)'; g.beginPath(); g.roundRect ? g.roundRect(x, y, w, 22, 6) : g.rect(x, y, w, 22); g.fill();
-      g.fillStyle = ok ? '#241a05' : '#e8efe9'; g.textBaseline = 'middle'; g.fillText(label, x + 7, y + 11.5);
-    }
+    poly(k.quad, ok ? '#d6ab52' : 'rgba(232,239,233,.85)', ok ? 3 : 2, ok ? null : [6, 5]);
+    const label = !eng.libOk ? 'Card found, no library' : ok ? `${k.confirmed.meta.name}  ${Math.round(k.confirmed.score * 100)}%` : (k.attempts ? 'Reading…' : 'Card found');
+    tag(k.quad, label, ok);
   });
+  if(t.flash && performance.now() < t.flash.until){
+    poly(t.flash.quad, t.flash.good ? '#d6ab52' : '#e8efe9', 3, t.flash.good ? null : [8, 5]);
+    tag(t.flash.quad, t.flash.label, t.flash.good);
+  }
   if(t.drag){
     const [a, bb] = [t.drag.a, t.drag.b];
     poly([[a[0], a[1]], [bb[0], a[1]], [bb[0], bb[1]], [a[0], bb[1]]], '#d6ab52', 2, [7, 5]);
@@ -728,7 +736,7 @@ function startEngine(){
   try{ eng.worker = new Worker('worker.js'); }
   catch(e){ setLibUI('Could not start the background reader (' + (e.message || e) + '). Open this page over http, not as a file.'); return; }
   setLibUI('Loading the card library…');
-  if(cfg.autoDetect) setEngineUI('Loading the card finder (about 10 MB, first time only)…');
+  setEngineUI('Starting the card finder…');
   eng.worker.onmessage = ev => {
     const m = ev.data;
     if(m.type === 'lib'){
@@ -736,18 +744,17 @@ function startEngine(){
       else { lib.n = m.n; lib.unique = m.unique; eng.libOk = true; setLibUI(`${m.unique.toLocaleString()} cards ready to recognize.`, true); }
     }else if(m.type === 'cv'){
       eng.cvOk = m.ok;
-      setEngineUI(m.ok ? 'Card finder ready.' : 'Card finder did not load (' + m.error + '). Use Draw box to read cards by hand.');
+      setEngineUI('Card finder ready.');
     }else if(m.type === 'result'){
       const p = eng.pending.get(m.id); if(p){ eng.pending.delete(m.id); p(m); }
     }
   };
   eng.worker.onerror = e => setEngineUI('Background reader error: ' + (e.message || 'unknown'));
-  eng.worker.postMessage({ type: 'init', api: cfg.api, index: cfg.index, loadCV: cfg.autoDetect });
+  eng.worker.postMessage({ type: 'init', api: cfg.api, index: cfg.index });
 }
 function ask(msg, transfer){
   return new Promise(res => { const id = ++eng.seq; eng.pending.set(id, res); eng.worker.postMessage({ ...msg, id }, transfer || []); });
 }
-function engineLoadCV(){ if(eng.worker && !eng.cvOk){ setEngineUI('Loading the card finder (about 10 MB, first time only)…'); eng.worker.postMessage({ type: 'loadcv' }); } }
 function initEngine(){ startEngine(); }
 
 /* ---------- frames sent to the worker ---------- */
@@ -772,19 +779,22 @@ function grabSmall(t){
   return { buf: d.buffer, w: W, h: H, s: W / v.videoWidth, still: changed < 0.004 };
 }
 function grabQuad(video, quad){
-  const vw = video.videoWidth, vh = video.videoHeight, m = 6;
+  const vw = video.videoWidth, vh = video.videoHeight;
   const xs = quad.map(p => p[0]), ys = quad.map(p => p[1]);
+  const m = Math.max(10, Math.round(0.14 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys))));
   const x0 = Math.max(0, Math.floor(Math.min(...xs)) - m), y0 = Math.max(0, Math.floor(Math.min(...ys)) - m);
   const x1 = Math.min(vw, Math.ceil(Math.max(...xs)) + m), y1 = Math.min(vh, Math.ceil(Math.max(...ys)) + m);
   const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
   scratch.width = w; scratch.height = h; sctx.drawImage(video, x0, y0, w, h, 0, 0, w, h);
   const id = sctx.getImageData(0, 0, w, h);
-  return { buf: id.data.buffer, w, h, quad: quad.map(p => [p[0] - x0, p[1] - y0]) };
+  return { buf: id.data.buffer, w, h, ox: x0, oy: y0, quad: quad.map(p => [p[0] - x0, p[1] - y0]) };
 }
+// Reads one card. res.quadV is the exact card outline in video coordinates (snapped to the real edges).
 async function readCardAsync(video, quad){
   const q = portraitQuad(quad.map(p => p.slice()));
   const g = grabQuad(video, q);
   const m = await ask({ type: 'recognize', buf: g.buf, w: g.w, h: g.h, quad: g.quad }, [g.buf]);
+  if(m.res && m.res.quad) m.res.quadV = m.res.quad.map(p => [p[0] + g.ox, p[1] + g.oy]);
   return m.res;
 }
 
@@ -811,19 +821,24 @@ function updateTracks(t, quads, vh){
 }
 
 async function readQuad(t, quad){
-  if(!eng.libOk){ toast('The card library has not loaded yet.'); return; }
   if(!t.video.videoWidth){ toast('Video is not ready yet.'); return; }
-  $('#scanStatus').textContent = 'Reading…';
+  if(!eng.libOk){ flash(t, quad, 'Card library missing. See the Card library box.', false); toast('The card library has not loaded. Check the Card library box on the right.'); return; }
+  flash(t, quad, 'Reading…', false, 8000);
   const res = await readCardAsync(t.video, quad);
-  if(!res || !res.list.length){ $('#scanStatus').textContent = 'Could not read that card.'; return; }
+  if(!res || !res.list.length){ flash(t, quad, 'Could not read that card', false); $('#scanStatus').textContent = 'Could not read that card.'; return; }
   const by = (players.get(t.id) || {}).name || 'Player';
-  showReading(res);
-  const top = res.list[0];
-  showCard(top.meta);
-  if(top.score >= cfg.strict){
+  const top = res.list[0], ok = top.score >= cfg.strict, pct = Math.round(top.score * 100);
+  showReading(res); showCard(top.meta);
+  flash(t, res.quadV || quad, ok ? `${top.meta.name}  ${pct}%` : `Not sure: ${top.meta.name}  ${pct}%`, ok);
+  if(ok){
     onTableSet(t.id + ':m' + Date.now(), top.meta, by, top.score);
     if(cfg.autoShare && t.id === 'me') shareCard(top.meta);
   }
+}
+// A temporary outline and label on the video (used for hand-drawn reads).
+function flash(t, quad, label, good, ms){
+  t.flash = { quad, label, good, until: performance.now() + (ms || 4000) };
+  drawOverlay(t); clearTimeout(t.flashT); t.flashT = setTimeout(() => drawOverlay(t), (ms || 4000) + 50);
 }
 
 function showReading(res){
@@ -857,6 +872,7 @@ async function recognizeTrack(t, k){
   k.attempts++; k.recCenter = k.center.slice(); k.lastRead = now;
   const res = await readCardAsync(t.video, k.quad);
   if(!res || !res.list.length || !t.tracks.includes(k)) return;
+  if(res.quadV) k.quad = res.quadV;          // outline snaps to the real card edges
   const top = res.list[0], second = res.list[1];
   const ok = top.score >= cfg.strict && (!second || top.score - second.score >= 0.04);
   k.nextRead = performance.now() + (ok || k.attempts < 4 ? 0 : 600);
@@ -884,9 +900,21 @@ async function recognizeTrack(t, k){
 
 // One pass: find card outlines, then read at most one card. Runs back to back, so the speed
 // is limited only by how fast the background worker answers.
+function updateChip(t){
+  let s = '', warn = false;
+  if(!cfg.autoDetect) s = 'Auto-find is off. Use Draw box.';
+  else if(!eng.worker) { s = 'Reader not started'; warn = true; }
+  else if(!eng.cvOk) s = 'Starting card finder…';
+  else if(!eng.libOk) { s = 'Card library missing'; warn = true; }
+  else if(!t.video.videoWidth) s = 'Waiting for video…';
+  else { const n = t.tracks.filter(k => k.missed < 3).length; s = n ? `${n} card${n > 1 ? 's' : ''} found` : 'Looking for cards…'; }
+  if(t.chip.textContent !== s) t.chip.textContent = s;
+  t.chip.classList.toggle('warn', warn);
+}
 async function step(){
+  for(const t of tiles.values()) if(t.id === 'me' || cfg.allCams) updateChip(t);
   if(document.hidden || !cfg.autoDetect || $('#tableView').hidden) return false;
-  if(!eng.worker || !eng.libOk || !eng.cvOk) return false;
+  if(!eng.worker || !eng.cvOk) return false;
   let worked = false;
   for(const t of tiles.values()){
     if(t.id !== 'me' && !cfg.allCams) continue;
@@ -914,7 +942,7 @@ async function step(){
       else if(!f.still && now - k.lastRead > 600) rank = 3;      // re-check while the table is changing
       if(rank < pickRank){ pick = k; pickRank = rank; }
     }
-    if(pick) await recognizeTrack(t, pick);
+    if(pick && eng.libOk) await recognizeTrack(t, pick);
     drawOverlay(t);
   }
   return worked;
@@ -976,7 +1004,7 @@ $('#strict').oninput = e => { cfg.strict = parseFloat(e.target.value); store.set
 $('#autoShare').onchange = e => { cfg.autoShare = e.target.checked; store.set('auto', cfg.autoShare ? '1' : '0'); };
 $('#autoDetect').onchange = e => {
   cfg.autoDetect = e.target.checked; store.set('detect', cfg.autoDetect ? '1' : '0');
-  if(cfg.autoDetect) engineLoadCV(); else tiles.forEach(t => { t.tracks.forEach(k => onTableDel(t.id + ':' + k.id)); t.tracks = []; drawOverlay(t); });
+  if(!cfg.autoDetect) tiles.forEach(t => { t.tracks.forEach(k => onTableDel(t.id + ':' + k.id)); t.tracks = []; drawOverlay(t); });
 };
 $('#allCams').onchange = e => { cfg.allCams = e.target.checked; store.set('allcams', cfg.allCams ? '1' : '0'); };
 
