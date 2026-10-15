@@ -2,7 +2,7 @@ name: Build card library
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 6 * * 1'
+    - cron: '0 6 * * 1'   # weekly, picks up new sets
 permissions:
   contents: write
 jobs:
