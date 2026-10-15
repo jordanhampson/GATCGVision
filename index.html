@@ -170,6 +170,7 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
     <div id="grid" data-n="1"></div>
     <div class="strip" id="strip">
       <button class="btn small" id="micBtn" aria-pressed="false">Mute mic</button>
+      <button class="btn small" id="recapBtn" type="button" title="Clear the mat of cards, then press this to relearn it">Recapture mat</button>
       <label class="opt"><input type="checkbox" id="autoDetect"> Find cards automatically</label>
       <label class="opt"><input type="checkbox" id="allCams"> Also read other cameras</label>
       <label class="opt">Match strictness <input type="range" id="strict" min="0.1" max="0.8" step="0.01"></label>
@@ -308,6 +309,7 @@ async function openCamera(){
   await refreshDevices();
   showLocal();
   swapTracks();
+  const mine = tiles.get('me'); if(mine){ mine.bgState = 'none'; mine.lastQuads = null; }
   $('#camBtn').textContent = 'Restart camera';
 }
 function stopCamera(){
@@ -361,7 +363,7 @@ function ensureTile(id){
       <div class="who"><strong class="nm"></strong></div>
     </div>    </div>`;
   const t2 = {
-    id, root, rot: false, tracks: [], tid: 0, drag: null,
+    id, root, rot: false, tracks: [], tid: 0, drag: null, bgState: 'none', bgN: 0, bgLast: 0, fg: 0,
     video: root.querySelector('video'), feed: root.querySelector('.feed'), overlay: root.querySelector('.overlay'),
     chip: root.querySelector('.chip2'), hint: root.querySelector('.hint'), callout: root.querySelector('.callout')
   };
@@ -790,10 +792,10 @@ function grabQuad(video, quad){
   return { buf: id.data.buffer, w, h, ox: x0, oy: y0, quad: quad.map(p => [p[0] - x0, p[1] - y0]) };
 }
 // Reads one card. res.quadV is the exact card outline in video coordinates (snapped to the real edges).
-async function readCardAsync(video, quad){
+async function readCardAsync(video, quad, trusted){
   const q = portraitQuad(quad.map(p => p.slice()));
   const g = grabQuad(video, q);
-  const m = await ask({ type: 'recognize', buf: g.buf, w: g.w, h: g.h, quad: g.quad }, [g.buf]);
+  const m = await ask({ type: 'recognize', trusted: !!trusted, buf: g.buf, w: g.w, h: g.h, quad: g.quad }, [g.buf]);
   if(m.res && m.res.quad) m.res.quadV = m.res.quad.map(p => [p[0] + g.ox, p[1] + g.oy]);
   return m.res;
 }
@@ -815,7 +817,7 @@ function updateTracks(t, quads, vh){
       used.add(tr.length - 1);
     }
   });
-  tr.forEach((k, i) => { if(!used.has(i)) k.missed++; });
+  tr.forEach((k, i) => { if(!used.has(i) && !k.fixed) k.missed++; });
   tr.filter(k => k.missed >= 8).forEach(k => onTableDel(t.id + ':' + k.id));
   t.tracks = tr.filter(k => k.missed < 8);
 }
@@ -870,13 +872,21 @@ function showReading(res){
 async function recognizeTrack(t, k){
   const now = performance.now();
   k.attempts++; k.recCenter = k.center.slice(); k.lastRead = now;
-  const res = await readCardAsync(t.video, k.quad);
+  const res = await readCardAsync(t.video, k.quad, t.bgState === 'ready');
   if(!res || !res.list.length || !t.tracks.includes(k)) return;
   if(res.quadV) k.quad = res.quadV;          // outline snaps to the real card edges
   const top = res.list[0], second = res.list[1];
   const ok = top.score >= cfg.strict && (!second || top.score - second.score >= 0.04);
   k.nextRead = performance.now() + (ok || k.attempts < 4 ? 0 : 600);
-  if(!ok) return;
+  if(!ok){
+    if(k.fixed){
+      k.fails = (k.fails || 0) + 1;
+      if(k.confirmed && k.fails >= 2){ onTableDel(t.id + ':' + k.id); k.confirmed = null; t.needRelearn = true; t.tracks = t.tracks.filter(x => x !== k); }
+      else if(!k.confirmed && k.fails >= 4) t.tracks = t.tracks.filter(x => x !== k);   // a pattern on the mat, not a card
+    }
+    return;
+  }
+  k.fails = 0;
   const slug = top.meta.slug;
   if(!k.confirmed){                       // first confident read: show it right away
     k.confirmed = { meta: top.meta, score: top.score }; k.alt = null;
@@ -898,6 +908,33 @@ async function recognizeTrack(t, k){
   }
 }
 
+// The empty mat is looked at a few times (to average out camera noise) and remembered.
+// From then on only what differs from it is searched for cards.
+const BG_FRAMES = 8;
+async function learnMat(t){
+  const now = performance.now();
+  if(t.bgState === 'none'){
+    t.bgState = 'learning'; t.bgN = 0; t.bgLast = 0; t.tracks.forEach(k => onTableDel(t.id + ':' + k.id)); t.tracks = []; t.lastQuads = null; t.fg = 0;
+    await ask({ type: 'bg-reset', tile: t.id });
+  }
+  t.bgLast = now;
+  const f = grabSmall(t);
+  const m = await ask({ type: 'bg-add', tile: t.id, buf: f.buf, w: f.w, h: f.h }, [f.buf]);
+  if(!m.ok){ t.bgState = 'none'; return; }
+  t.bgN++;
+  if(t.bgN >= BG_FRAMES){
+    const d = await ask({ type: 'bg-done', tile: t.id }); t.bgState = d.ok ? 'ready' : 'none';
+    if(d.ok){   // cards already on the mat: track them as fixed cards and read them like any other
+      t.tracks = (d.cards || []).map(q => {
+        const quad = q.map(p => [p[0] / f.s, p[1] / f.s]);
+        return { id: ++t.tid, quad, center: centerOf(quad), stable: 3, missed: 0, attempts: 0, recCenter: null, confirmed: null, alt: null, nextRead: 0, lastRead: 0, fixed: true, fails: 0 };
+      });
+    }
+  }
+}
+function relearnMat(){
+  tiles.forEach(t => { t.bgState = 'none'; t.tracks.forEach(k => onTableDel(t.id + ':' + k.id)); t.tracks = []; t.lastQuads = null; drawOverlay(t); });
+}
 // One pass: find card outlines, then read at most one card. Runs back to back, so the speed
 // is limited only by how fast the background worker answers.
 function updateChip(t){
@@ -907,6 +944,8 @@ function updateChip(t){
   else if(!eng.cvOk) s = 'Starting card finder…';
   else if(!eng.libOk) { s = 'Card library missing'; warn = true; }
   else if(!t.video.videoWidth) s = 'Waiting for video…';
+  else if(t.bgState !== 'ready') s = `Learning the empty mat… keep it clear (${t.bgN}/${BG_FRAMES})`;
+  else if(t.fg > 0.4) { s = 'The mat looks different. Press Recapture mat.'; warn = true; }
   else { const n = t.tracks.filter(k => k.missed < 3).length; s = n ? `${n} card${n > 1 ? 's' : ''} found` : 'Looking for cards…'; }
   if(t.chip.textContent !== s) t.chip.textContent = s;
   t.chip.classList.toggle('warn', warn);
@@ -919,14 +958,27 @@ async function step(){
   for(const t of tiles.values()){
     if(t.id !== 'me' && !cfg.allCams) continue;
     const v = t.video; if(!v.videoWidth || v.readyState < 2) continue;
+    if(t.bgState !== 'ready'){                       // first, look at the empty mat a few times
+      const nowL = performance.now();
+      if(t.bgState === 'learning' && nowL - t.bgLast < 110){ worked = true; continue; }
+      worked = true; await learnMat(t); continue;
+    }
     const f = grabSmall(t), now = performance.now();
-    if(f.still && t.tracks.length && t.tracks.every(k => k.confirmed)) continue; // nothing moved
-    if(f.still && !t.tracks.length && t.lastQuads) continue;                    // empty and quiet
+    t.stillSince = f.still ? (t.stillSince || now) : 0;
+    // a card that was on the mat when it was learned has been taken away: once things are quiet, learn the mat again
+    if(t.needRelearn && t.stillSince && now - t.stillSince > 1500){ t.needRelearn = false; t.bgState = 'none'; continue; }
+    // After any change, keep looking for a moment (cards may have been taken away), then go quiet.
+    if(!f.still) t.settle = 20; else if(t.settle > 0) t.settle--;
+    const quiet = f.still && !(t.settle > 0);
+    if(quiet && t.tracks.length && t.tracks.every(k => k.confirmed && !k.fails)) continue; // nothing moved
+    if(quiet && !t.tracks.length && t.lastQuads) continue;                                  // empty and quiet
     worked = true;
     let quads;
-    if(f.still && t.lastQuads) quads = t.lastQuads;
+    if(quiet && t.lastQuads) quads = t.lastQuads;
     else{
-      const m = await ask({ type: 'detect', buf: f.buf, w: f.w, h: f.h }, [f.buf]);
+      const m = await ask({ type: 'detect', tile: t.id, buf: f.buf, w: f.w, h: f.h }, [f.buf]);
+      if(m.mismatch){ t.bgState = 'none'; continue; }      // camera size changed: learn the mat again
+      t.fg = m.frac || 0;
       quads = (m.quads || []).map(q => q.map(p => [p[0] / f.s, p[1] / f.s]));
       t.lastQuads = quads;
     }
@@ -939,7 +991,8 @@ async function step(){
       let rank = 9;
       if(!k.confirmed){ if(moved || now >= k.nextRead) rank = moved ? 0 : 1; }
       else if(moved) rank = 2;
-      else if(!f.still && now - k.lastRead > 600) rank = 3;      // re-check while the table is changing
+      else if((!f.still || t.settle > 0) && now - k.lastRead > (k.fixed ? 300 : 600)) rank = 3;   // re-check while the table is changing
+      else if(k.fails && now >= k.nextRead) rank = 3;
       if(rank < pickRank){ pick = k; pickRank = rank; }
     }
     if(pick && eng.libOk) await recognizeTrack(t, pick);
@@ -1000,10 +1053,12 @@ $('#micBtn').onclick = e => {
   cam.mic = !cam.mic; if(cam.audioTrack) cam.audioTrack.enabled = cam.mic;
   e.target.textContent = cam.mic ? 'Mute mic' : 'Unmute mic'; e.target.setAttribute('aria-pressed', !cam.mic);
 };
+$('#recapBtn').onclick = () => { relearnMat(); toast('Take cards off the mat. Learning it again…'); };
 $('#strict').oninput = e => { cfg.strict = parseFloat(e.target.value); store.set('strict2', cfg.strict); };
 $('#autoShare').onchange = e => { cfg.autoShare = e.target.checked; store.set('auto', cfg.autoShare ? '1' : '0'); };
 $('#autoDetect').onchange = e => {
   cfg.autoDetect = e.target.checked; store.set('detect', cfg.autoDetect ? '1' : '0');
+  if(cfg.autoDetect) tiles.forEach(t => { t.bgState = 'none'; });
   if(!cfg.autoDetect) tiles.forEach(t => { t.tracks.forEach(k => onTableDel(t.id + ':' + k.id)); t.tracks = []; drawOverlay(t); });
 };
 $('#allCams').onchange = e => { cfg.allCams = e.target.checked; store.set('allcams', cfg.allCams ? '1' : '0'); };

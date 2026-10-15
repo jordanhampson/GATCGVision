@@ -257,6 +257,9 @@ function findCards(img, maxFrac){
   const mean = sum / n, sd = Math.sqrt(Math.max(0, sq / n - mean * mean)), et = Math.max(40, mean + 0.8 * sd);
   const edge = new Uint8Array(n); for(let i = 0; i < n; i++) edge[i] = mag[i] > et ? 1 : 0;
   found.push(...blobQuads(dilate3(edge, w, h), w, h, minA, maxA, true));
+  return nmsQuads(found);
+}
+function nmsQuads(found){
   found.sort((a, b) => b.area - a.area);
   const kept = [];
   for(const f of found){
@@ -265,6 +268,53 @@ function findCards(img, maxFrac){
     if(kept.length >= 6) break;
   }
   return kept.map(k => k.q);
+}
+
+// ---- background model: learn the empty mat once, then only look at what is new ----
+function bgNew(){ return { n: 0, w: 0, h: 0, sum: null, mean: null, last: null, T: 30, ready: false }; }
+function bgAdd(bg, img){
+  if(bg.n === 0){ bg.w = img.width; bg.h = img.height; bg.sum = new Float32Array(img.width * img.height * 3); }
+  else if(img.width !== bg.w || img.height !== bg.h) return false;
+  const n = img.width * img.height, d = img.data, s = bg.sum;
+  for(let i = 0; i < n; i++){ s[i * 3] += d[i * 4]; s[i * 3 + 1] += d[i * 4 + 1]; s[i * 3 + 2] += d[i * 4 + 2]; }
+  bg.n++; bg.last = img; return true;
+}
+// Differences from the learned mat, with the overall brightness shift (auto exposure) removed.
+function diffAgainst(img, bg, step){
+  const n = img.width * img.height, d = img.data, m = bg.mean, hist = [new Int32Array(511), new Int32Array(511), new Int32Array(511)];
+  let cnt = 0;
+  for(let i = 0; i < n; i += step){ cnt++; for(let c = 0; c < 3; c++){ const v = Math.max(-255, Math.min(255, Math.round(d[i * 4 + c] - m[i * 3 + c]))); hist[c][v + 255]++; } }
+  const off = [0, 0, 0];
+  for(let c = 0; c < 3; c++){ let acc = 0; for(let b = 0; b < 511; b++){ acc += hist[c][b]; if(acc >= cnt / 2){ off[c] = b - 255; break; } } }
+  return off;
+}
+function bgDone(bg){
+  if(bg.n < 2) return false;
+  const n = bg.w * bg.h; bg.mean = new Float32Array(n * 3);
+  for(let i = 0; i < n * 3; i++) bg.mean[i] = bg.sum[i] / bg.n;
+  // noise level: how far a real frame of the empty mat strays from the average
+  const off = diffAgainst(bg.last, bg, 3), s = [], d = bg.last.data;
+  for(let i = 0; i < n; i += 3){
+    let v = 0; for(let c = 0; c < 3; c++) v = Math.max(v, Math.abs(d[i * 4 + c] - bg.mean[i * 3 + c] - off[c])); s.push(v);
+  }
+  s.sort((a, b) => a - b); const sigma = s[s.length >> 1] / 0.6745;
+  bg.T = Math.min(60, Math.max(24, 5 * sigma)); bg.ready = true; bg.sum = null; bg.last = null; return true;
+}
+// Card outlines from what differs from the learned mat. Also returns the fraction of the frame that changed.
+function findCardsBg(img, bg){
+  const w = img.width, h = img.height, n = w * h, d = img.data, m = bg.mean;
+  if(!bg.ready || w !== bg.w || h !== bg.h) return { quads: [], frac: 0, mismatch: true };
+  const off = diffAgainst(img, bg, 3);
+  let mask = new Uint8Array(n), cnt = 0;
+  for(let i = 0; i < n; i++){
+    const a = Math.abs(d[i * 4] - m[i * 3] - off[0]), b = Math.abs(d[i * 4 + 1] - m[i * 3 + 1] - off[1]), c = Math.abs(d[i * 4 + 2] - m[i * 3 + 2] - off[2]);
+    if(a > bg.T || b > bg.T || c > bg.T){ mask[i] = 1; cnt++; }
+  }
+  const frac = cnt / n;
+  if(frac < 0.002) return { quads: [], frac };                        // nothing new on the mat: done, almost free
+  mask = dilate3(erode3(mask, w, h), w, h);                           // drop speckle
+  mask = erode3(erode3(dilate3(dilate3(mask, w, h), w, h), w, h), w, h); // fill gaps so a card is one blob
+  return { quads: nmsQuads(blobQuads(mask, w, h, 0.008 * w * h, 0.5 * w * h, true)), frac };
 }
 // Average-downscale an RGBA image to the given width.
 function downscale(img, W){
@@ -283,7 +333,8 @@ function downscale(img, W){
 }
 // Snap a rough quad to the real card edges: along each side, look for the outermost strong edge
 // perpendicular to the side, fit a straight line to those points, and intersect neighbouring lines.
-function refineByEdges(img, q){
+// opts.out / opts.inn: how far (as a fraction of the card's short side) to look outside / inside the rough outline.
+function refineByEdges(img, q, opts){
   const w = img.width, h = img.height, g = blur3(toGray(img), w, h);
   const at = (x, y) => {
     x = Math.max(0, Math.min(w - 1.001, x)); y = Math.max(0, Math.min(h - 1.001, y));
@@ -292,16 +343,16 @@ function refineByEdges(img, q){
   };
   const cx = q.reduce((a, p) => a + p[0], 0) / 4, cy = q.reduce((a, p) => a + p[1], 0) / 4;
   const side = Math.min(dist(q[0], q[1]), dist(q[1], q[2]), dist(q[2], q[3]), dist(q[3], q[0]));
-  const win = Math.max(4, 0.09 * side), step = 0.5, lines = [];
+  const outW = Math.max(3, (opts && opts.out != null ? opts.out : 0.09) * side), inW = Math.max(4, (opts && opts.inn != null ? opts.inn : 0.09) * side), step = 0.5, lines = [];
   for(let e = 0; e < 4; e++){
     const a = q[e], b = q[(e + 1) % 4], len = dist(a, b); if(len < 10) return null;
     let nx = -(b[1] - a[1]) / len, ny = (b[0] - a[0]) / len;
     if(nx * ((a[0] + b[0]) / 2 - cx) + ny * ((a[1] + b[1]) / 2 - cy) < 0){ nx = -nx; ny = -ny; }   // point outward
     let pts = [];
-    const ns = Math.round(2 * win / step) + 1, prof = new Float32Array(ns);
+    const ns = Math.round((outW + inW) / step) + 1, prof = new Float32Array(ns);
     for(let i = 0; i < 30; i++){
       const t = 0.12 + 0.76 * i / 29, px = a[0] + (b[0] - a[0]) * t, py = a[1] + (b[1] - a[1]) * t;
-      for(let k = 0; k < ns; k++){ const s = -win + k * step; prof[k] = at(px + nx * s, py + ny * s); }
+      for(let k = 0; k < ns; k++){ const s = -inW + k * step; prof[k] = at(px + nx * s, py + ny * s); }
       let mx = 0; const gr = new Float32Array(ns);
       for(let k = 2; k < ns - 2; k++){ gr[k] = Math.abs(prof[k + 2] - prof[k - 2]); if(gr[k] > mx) mx = gr[k]; }
       if(mx < 14) continue;
@@ -309,7 +360,7 @@ function refineByEdges(img, q){
       let pick = -1; for(let k = ns - 3; k >= 2; k--) if(gr[k] >= need){ pick = k; break; }   // outermost clear edge
       if(pick < 0) continue;
       let pk = pick; for(let k = Math.max(2, pick - 4); k < pick; k++) if(gr[k] > gr[pk]) pk = k;   // centre of that edge
-      const s = -win + pk * step; pts.push([px + nx * s, py + ny * s]);
+      const s = -inW + pk * step; pts.push([px + nx * s, py + ny * s]);
     }
     if(pts.length < 10) return null;
     let line = null;
@@ -441,4 +492,4 @@ function unpackLibrary(json, buf){
   return { n, H, meta: json.meta };
 }
 
-if(typeof module !== 'undefined') module.exports = { findCards, refineQuad, refineByEdges, downscale, polyAreaOf, fingerprint, recognize, warp, orderQuad, portraitQuad, rot180, packLibrary, unpackLibrary, NW, CW, CH, REG };
+if(typeof module !== 'undefined') module.exports = { findCards, findCardsBg, bgNew, bgAdd, bgDone, refineQuad, refineByEdges, downscale, polyAreaOf, fingerprint, recognize, warp, orderQuad, portraitQuad, rot180, packLibrary, unpackLibrary, NW, CW, CH, REG };
