@@ -81,6 +81,14 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 .chip2{position:absolute;left:10px;top:10px;background:rgba(7,19,18,.82);backdrop-filter:blur(4px);border:1px solid var(--line);padding:3px 10px;border-radius:999px;font-size:12.5px;color:var(--muted);pointer-events:none}
 .chip2.warn{color:#f0b9aa;border-color:rgba(229,112,90,.5)}
 .chip2:empty{display:none}
+.ns{font-size:12px;color:var(--good)}
+.ns.warn{color:#f0b9aa}
+details.net{margin-top:18px;border:1px solid var(--line);border-radius:12px;padding:10px 14px;background:var(--panel)}
+details.net summary{cursor:pointer;color:var(--muted)}
+details.net .note{color:var(--muted);font-size:13.5px;margin:10px 0}
+details.net pre{white-space:pre-wrap;font:13px/1.5 var(--sans);background:var(--panel-hi);border-radius:8px;padding:10px;margin:10px 0}
+details.net textarea{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:12.5px/1.4 ui-monospace,Menlo,monospace;resize:vertical}
+details.net .opt{display:flex;align-items:center;gap:8px;margin-top:8px}
 .callout{position:absolute;left:12px;top:46px;width:min(34%,190px);border-radius:10px;overflow:hidden;border:2px solid var(--brass);background:#071312;box-shadow:0 8px 24px rgba(0,0,0,.5)}
 .callout img{display:block;width:100%}
 .callout span{display:block;padding:3px 8px;font-size:12px;font-weight:600;background:var(--brass);color:var(--brass-ink)}
@@ -125,7 +133,7 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 
 <header class="bar">
   <div class="brand">Archive Table</div>
-  <div class="chip" id="roomChip" hidden><span>Table</span><b id="roomCode"></b><button class="btn small" id="copyCode">Copy code</button></div>
+  <div class="chip" id="roomChip" hidden><span>Table</span><b id="roomCode"></b><span id="netState" class="ns"></span><button class="btn small" id="copyCode">Copy code</button></div>
   <div class="grow"></div>
   <button class="btn" id="leaveBtn" hidden>Leave table</button>
 </header>
@@ -148,6 +156,15 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
     </div>
     <button class="btn link" id="soloBtn">Practice solo, no network</button>
     <p id="lobbyMsg" role="status"></p>
+    <details class="net" id="netDetails">
+      <summary>Connection trouble?</summary>
+      <p class="note">Tables use direct browser-to-browser connections. Strict home routers, mobile data and work or school networks can block them, and a relay (TURN) server fixes that. Each player can run this check on their own network.</p>
+      <button class="btn small" id="netCheck" type="button">Check my network</button>
+      <pre id="netReport" hidden></pre>
+      <label for="iceExtra">Extra relay servers (optional, JSON)</label>
+      <textarea id="iceExtra" rows="3" spellcheck="false" placeholder='[{"urls":"turn:relay.example.com:3478","username":"name","credential":"secret"}]'></textarea>
+      <label class="opt"><input type="checkbox" id="forceRelay"> Send everything through the relay (for testing)</label>
+    </details>
   </section>
   <section class="preview">
     <div class="empty" id="previewEmpty">Turn on your camera to check your playmat before you sit down.</div>
@@ -223,6 +240,7 @@ label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
 <div id="toast" role="status" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="net-config.js"></script>
 <script src="algo.js"></script>
 <script>
 (() => {
@@ -484,22 +502,96 @@ function dragEnd(t, e){
 }
 
 /* ---------- networking (PeerJS mesh, up to 4 players) ---------- */
-const net = { peer: null, code: '', host: false, conns: new Map(), calls: new Map(), members: new Set() };
+const net = { peer: null, code: '', host: false, conns: new Map(), calls: new Map(), members: new Set(),
+  link: new Map(), initiated: new Set(), retries: new Map(), quiet: new Set() };
+const NET = window.ARCHIVE_NET || { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const newCode = () => Array.from({ length: 5 }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]).join('');
 
+// ICE servers: the ones in net-config.js plus anything pasted into the lobby's "Connection trouble?" box.
+function iceConfig(){
+  let extra = [];
+  try{ const v = JSON.parse(store.get('ice', '') || '[]'); if(Array.isArray(v)) extra = v; }catch(e){}
+  const c = { iceServers: [...(NET.iceServers || []), ...extra] };
+  if(store.get('relay', '0') === '1') c.iceTransportPolicy = 'relay';
+  return c;
+}
+const peerOptions = () => Object.assign({ debug: 0, config: iceConfig() }, NET.peerServer || {});
 function createPeer(id){
   return new Promise((res, rej) => {
-    const p = new Peer(id, { debug: 0 });
+    const p = new Peer(id, peerOptions());
     p.on('open', () => res(p));
     p.on('error', e => rej(e));
   });
 }
+function setSignal(s){ const el = $('#netState'); if(!el) return; el.textContent = s ? 'matchmaking ' + s : ''; el.classList.toggle('warn', s !== 'online'); }
 function broadcast(msg){ net.conns.forEach(c => { if(c.open) c.send(msg); }); }
+
+// ---- per-player connection status ----
+async function linkKind(pc){
+  try{
+    const stats = await pc.getStats(), byId = {}; let pair = null;
+    stats.forEach(s => { byId[s.id] = s; });
+    stats.forEach(s => { if(s.type === 'transport' && s.selectedCandidatePairId) pair = byId[s.selectedCandidatePairId]; });
+    if(!pair) stats.forEach(s => { if(s.type === 'candidate-pair' && (s.selected || (s.nominated && s.state === 'succeeded'))) pair = s; });
+    if(!pair) return 'direct';
+    const l = byId[pair.localCandidateId], r = byId[pair.remoteCandidateId];
+    return (l && l.candidateType === 'relay') || (r && r.candidateType === 'relay') ? 'relay' : 'direct';
+  }catch(e){ return 'direct'; }
+}
+function setLink(id, state){
+  net.link.set(id, state);
+  const t = tiles.get(id); if(t) updateChip(t);
+}
+function linkText(id){
+  switch(net.link.get(id)){
+    case 'connecting': return { s: 'Connecting…', warn: false };
+    case 'relay': return { s: 'Connected through a relay', warn: false };
+    case 'lost': return { s: 'Connection interrupted', warn: true };
+    case 'failed': return { s: 'Connection failed', warn: true };
+    default: return null;
+  }
+}
+function watchLink(call){
+  const id = call.peer; let seen = '', iv = null, n = 0;
+  const stop = () => { if(iv) clearInterval(iv); iv = null; };
+  iv = setInterval(async () => {
+    const pc = call.peerConnection;
+    if(!pc){ if(++n > 40) stop(); return; }
+    const st = pc.iceConnectionState;
+    if(st === seen) return; seen = st;
+    if(st === 'connected' || st === 'completed') setLink(id, await linkKind(pc));
+    else if(st === 'failed'){ stop(); onLinkFailed(id); }
+    else if(st === 'disconnected') setLink(id, 'lost');
+    else if(st === 'closed') stop();
+    else setLink(id, 'connecting');
+  }, 600);
+  call.on('close', stop);
+}
+// A connection that is still "connecting" after a while is treated as failed (some networks never report an error).
+function linkTimer(id){
+  setTimeout(() => { if(net.peer && tiles.has(id) && net.link.get(id) === 'connecting') onLinkFailed(id, true); }, 18000);
+}
+function onLinkFailed(id, timedOut){
+  const tries = net.retries.get(id) || 0, name = (players.get(id) || {}).name || 'that player';
+  if(net.initiated.has(id) && tries < (timedOut ? 1 : 2) && net.peer){
+    net.retries.set(id, tries + 1); net.quiet.add(id);
+    toast(`Connection to ${name} failed. Trying again…`);
+    const c = net.conns.get(id); net.conns.delete(id); try{ c && c.close(); }catch(e){}
+    const k = net.calls.get(id); net.calls.delete(id); try{ k && k.close(); }catch(e){}
+    setTimeout(() => { net.quiet.delete(id); if(net.peer && !net.conns.has(id)) link(id); }, 1500);
+  }else{
+    setLink(id, 'failed');
+    toast(`Could not connect to ${name}. One of your networks is blocking direct connections. Open "Connection trouble?" in the lobby, or add a relay server (see the README).`);
+  }
+}
+
 function link(id){
-  if(!net.peer || net.conns.has(id) || id === net.peer.id) return;
-  setupConn(net.peer.connect(id, { reliable: true }));
+  if(!net.peer || net.conns.has(id) || id === net.peer.id) return null;
+  net.initiated.add(id); ensureTile(id); setLink(id, 'connecting'); linkTimer(id);
+  const conn = net.peer.connect(id, { reliable: true }); setupConn(conn);
   wireCall(net.peer.call(id, outgoing()));
+  return conn;
 }
 function setupConn(conn){
   net.conns.set(conn.peer, conn);
@@ -523,16 +615,18 @@ function capSenders(call){
 function wireCall(call){
   net.calls.set(call.peer, call);
   setTimeout(() => capSenders(call), 1500);
+  watchLink(call);
   call.on('stream', s => { const t = ensureTile(call.peer); t.video.srcObject = s; t.video.play().catch(() => {}); });
   call.on('close', () => dropPlayer(call.peer));
 }
 function dropPlayer(id){
   if(!tiles.has(id) && !net.conns.has(id)) return;
-  const p = players.get(id);
-  if(p && p.name) toast(`${p.name} left the table.`);
+  const p = players.get(id), quiet = net.quiet.has(id);
+  if(p && p.name && !quiet) toast(`${p.name} left the table.`);
   const c = net.conns.get(id); net.conns.delete(id); try{ c && c.close(); }catch(e){}
   const k = net.calls.get(id); net.calls.delete(id); try{ k && k.close(); }catch(e){}
   net.members.delete(id);
+  if(!quiet){ net.link.delete(id); net.initiated.delete(id); net.retries.delete(id); }
   removeTile(id);
 }
 function onData(conn, d){
@@ -547,12 +641,13 @@ function onData(conn, d){
   }else if(d.t === 'peers' && Array.isArray(d.ids)){
     d.ids.forEach(link);
   }else if(d.t === 'full'){
-    toast('That table already has four players.'); leaveTable();
+    failJoin('That table already has four players.');
   }else if(d.t === 'card' && d.card){
     pushShared(d.card, id);
   }
 }
 function onIncoming(conn){
+  ensureTile(conn.peer); if(!net.link.has(conn.peer)){ setLink(conn.peer, 'connecting'); linkTimer(conn.peer); }
   setupConn(conn);
   if(!net.host) return;
   conn.on('open', () => {
@@ -561,12 +656,19 @@ function onIncoming(conn){
     net.members.add(conn.peer);
   });
 }
+// Back to the lobby with a message the player can act on.
+function failJoin(message){
+  leaveTable(); $('#toast').hidden = true;
+  $('#lobbyMsg').textContent = message;
+  $('#netDetails').open = true;
+}
 async function enterTable(code, asHost){
   const msg = $('#lobbyMsg'); msg.textContent = '';
   me.name = $('#nameIn').value.trim() || 'Player'; store.set('name', me.name);
   if(!cam.stream){
     try{ await openCamera(); }catch(e){ toast('Camera is off, so others will see a placeholder. Use Restart camera in the controls to turn it on.'); }
   }
+  let hostConn = null;
   try{
     if(asHost){
       for(let i = 0; i < 4; i++){
@@ -580,21 +682,33 @@ async function enterTable(code, asHost){
       net.host = false;
     }
     net.code = code;
-    net.peer.on('connection', onIncoming);
-    net.peer.on('call', call => { call.answer(outgoing()); wireCall(call); });
-    net.peer.on('disconnected', () => { try{ net.peer.reconnect(); }catch(e){} });
-    net.peer.on('error', e => {
-      if(e.type === 'peer-unavailable') toast(net.host ? 'A player dropped before connecting.' : 'No table found with that code.');
-      else if(e.type !== 'unavailable-id') toast('Network problem: ' + e.type);
+    const peer = net.peer;
+    peer.on('connection', onIncoming);
+    peer.on('call', call => { ensureTile(call.peer); if(!net.link.has(call.peer)){ setLink(call.peer, 'connecting'); linkTimer(call.peer); } call.answer(outgoing()); wireCall(call); });
+    peer.on('open', () => setSignal('online'));
+    peer.on('disconnected', () => { setSignal('reconnecting…'); try{ peer.reconnect(); }catch(e){} });
+    peer.on('error', e => {
+      if(peer !== net.peer) return;
+      if(e.type === 'peer-unavailable'){
+        if(!net.host && !(hostConn && hostConn.open)) failJoin('No table found with that code.');
+        else toast('A player dropped before connecting.');
+      }else if(['network', 'server-error', 'socket-error', 'socket-closed'].includes(e.type)){
+        setSignal('offline');
+        toast('Lost contact with the matchmaking server. Players already connected stay connected, but nobody new can join until it is back.');
+      }else if(e.type !== 'unavailable-id') toast('Network problem: ' + e.type);
     });
     showTable();
+    setSignal('online');
     $('#roomCode').textContent = code; $('#roomChip').hidden = false;
     if(!asHost){
-      link('archtbl-' + code);
-      setTimeout(() => { if(!net.conns.size && net.peer){ toast('Could not reach that table. Check the code.'); leaveTable(); } }, 9000);
+      hostConn = link('archtbl-' + code);
+      setTimeout(() => {
+        if(net.peer === peer && !net.host && hostConn && !hostConn.open)
+          failJoin('Could not reach that table. Check the code. If it is right, one of your networks may be blocking direct connections: run the network check below.');
+      }, 20000);
     }
   }catch(e){
-    msg.textContent = e.type === 'unavailable-id' ? 'That code is taken. Try again.' : 'Could not connect to the matchmaking server (' + (e.type || e.message) + ').';
+    msg.textContent = e.type === 'unavailable-id' ? 'That code is taken. Try again.' : 'Could not connect to the matchmaking server (' + (e.type || e.message) + '). Check your internet connection, or run the network check below.';
     cleanupNet();
   }
 }
@@ -603,6 +717,7 @@ function cleanupNet(){
   net.calls.forEach(c => { try{ c.close(); }catch(e){} });
   try{ net.peer && net.peer.destroy(); }catch(e){}
   net.peer = null; net.conns.clear(); net.calls.clear(); net.members.clear(); net.host = false; net.code = '';
+  net.link.clear(); net.initiated.clear(); net.retries.clear(); net.quiet.clear();
 }
 function leaveTable(){
   cleanupNet();
@@ -619,6 +734,59 @@ function showTable(){
   $('#strip').prepend($('#camTools'));
   showLocal();
   initEngine();
+}
+
+/* ---------- network check (lobby) ---------- */
+function parseCand(c){
+  const s = c.candidate || '', m = / typ (\w+)/.exec(s), p = s.split(' ');
+  return { type: m && m[1], proto: p[2], addr: p[4], port: +p[5], rport: (/ rport (\d+)/.exec(s) || [])[1] };
+}
+async function gather(servers, ms){
+  const pc = new RTCPeerConnection({ iceServers: servers }), out = [];
+  pc.createDataChannel('probe'); pc.onicecandidate = e => { if(e.candidate) out.push(parseCand(e.candidate)); };
+  await pc.setLocalDescription(await pc.createOffer());
+  await new Promise(res => {
+    const to = setTimeout(res, ms);
+    pc.onicegatheringstatechange = () => { if(pc.iceGatheringState === 'complete'){ clearTimeout(to); res(); } };
+  });
+  pc.close(); return out;
+}
+async function runNetCheck(){
+  const out = $('#netReport'), btn = $('#netCheck'); out.hidden = false; btn.disabled = true;
+  const show = lines => { out.textContent = lines.join('\n'); };
+  const lines = ['Checking your network…']; show(lines);
+  try{
+    // 1. matchmaking server
+    const mm = await new Promise(res => {
+      let done = false; const fin = v => { if(!done){ done = true; clearTimeout(to); try{ p && p.destroy(); }catch(e){} res(v); } };
+      let p = null; const to = setTimeout(() => fin(false), 8000);
+      try{ p = new Peer(undefined, peerOptions()); p.on('open', () => fin(true)); p.on('error', () => fin(false)); }catch(e){ fin(false); }
+    });
+    lines[0] = (mm ? 'OK   ' : 'FAIL ') + 'Matchmaking server ' + (mm ? 'reachable.' : 'not reachable. Players cannot find each other without it. Check your internet connection or firewall.'); show(lines);
+    // 2. direct route (STUN) and NAT type, using two different STUN servers
+    lines.push('...  Testing the direct route…'); show(lines);
+    const g = await gather([{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }], 7000);
+    const srflx = g.filter(c => c.type === 'srflx'), byLocal = {};
+    srflx.forEach(c => { (byLocal[c.rport] = byLocal[c.rport] || new Set()).add(c.port); });
+    const symmetric = Object.values(byLocal).some(s => s.size > 1);
+    lines.pop();
+    lines.push((srflx.length ? 'OK   ' : 'FAIL ') + 'Direct route (STUN): ' + (srflx.length ? 'your public address was found.' : 'no answer. UDP traffic to the internet seems to be blocked on this network.'));
+    if(srflx.length) lines.push((symmetric ? 'WARN ' : 'OK   ') + 'Router type: ' + (symmetric ? 'strict (symmetric NAT). Direct connections to many networks will fail.' : 'friendly. Direct connections should work.'));
+    show(lines);
+    // 3. relay (TURN) from the configured servers
+    const turn = (iceConfig().iceServers || []).filter(s => [].concat(s.urls).some(u => /^turns?:/.test(u)));
+    let relay = [];
+    if(turn.length){ lines.push('...  Testing the relay server…'); show(lines); relay = (await gather(turn, 8000)).filter(c => c.type === 'relay'); lines.pop(); }
+    lines.push(turn.length ? ((relay.length ? 'OK   ' : 'FAIL ') + 'Relay (TURN): ' + (relay.length ? 'reachable, credentials accepted.' : 'configured but did not answer. It may be down, full, or the login is wrong.')) : 'INFO Relay (TURN): none configured.');
+    // verdict
+    lines.push('');
+    if(!mm) lines.push('Result: fix the matchmaking connection first.');
+    else if(relay.length) lines.push('Result: good. Even if a direct route is impossible, the relay can carry the video.');
+    else if(!srflx.length || symmetric) lines.push('Result: connections to other networks will probably fail. Add a relay (TURN) server: see net-config.js and the README.');
+    else lines.push('Result: looks fine. If a friend still cannot connect, ask them to run this check on their network too.');
+    show(lines);
+  }catch(e){ lines.push('Check failed: ' + (e.message || e)); show(lines); }
+  btn.disabled = false;
 }
 
 /* ---------- card data ---------- */
@@ -939,6 +1107,11 @@ function relearnMat(){
 // is limited only by how fast the background worker answers.
 function updateChip(t){
   let s = '', warn = false;
+  if(t.id !== 'me'){
+    const lt = linkText(t.id);
+    if(lt){ if(t.chip.textContent !== lt.s) t.chip.textContent = lt.s; t.chip.classList.toggle('warn', lt.warn); return; }
+    if(!cfg.allCams){ if(t.chip.textContent) t.chip.textContent = ''; t.chip.classList.remove('warn'); return; }
+  }
   if(!cfg.autoDetect) s = 'Auto-find is off. Use Draw box.';
   else if(!eng.worker) { s = 'Reader not started'; warn = true; }
   else if(!eng.cvOk) s = 'Starting card finder…';
@@ -951,7 +1124,7 @@ function updateChip(t){
   t.chip.classList.toggle('warn', warn);
 }
 async function step(){
-  for(const t of tiles.values()) if(t.id === 'me' || cfg.allCams) updateChip(t);
+  for(const t of tiles.values()) updateChip(t);
   if(document.hidden || !cfg.autoDetect || $('#tableView').hidden) return false;
   if(!eng.worker || !eng.cvOk) return false;
   let worked = false;
@@ -1063,6 +1236,15 @@ $('#autoDetect').onchange = e => {
 };
 $('#allCams').onchange = e => { cfg.allCams = e.target.checked; store.set('allcams', cfg.allCams ? '1' : '0'); };
 
+$('#netCheck').onclick = runNetCheck;
+$('#iceExtra').value = store.get('ice', '');
+$('#iceExtra').onchange = e => {
+  const v = e.target.value.trim();
+  if(v){ try{ if(!Array.isArray(JSON.parse(v))) throw new Error('not a list'); }catch(err){ toast('That is not valid JSON. It should look like [{"urls": "...", "username": "...", "credential": "..."}].'); return; } }
+  store.set('ice', v); toast(v ? 'Relay servers saved on this device.' : 'Extra relay servers cleared.');
+};
+$('#forceRelay').checked = store.get('relay', '0') === '1';
+$('#forceRelay').onchange = e => store.set('relay', e.target.checked ? '1' : '0');
 $('#startTable').onclick = () => enterTable(newCode(), true);
 $('#joinTable').onclick = () => {
   const code = $('#codeIn').value.trim().toUpperCase();
