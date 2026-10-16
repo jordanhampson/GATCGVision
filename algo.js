@@ -239,7 +239,7 @@ function blobQuads(mask, w, h, minA, maxA, hollow){
   return out;
 }
 // Returns card outlines [[TL,TR,BR,BL], ...] in the coordinates of img (largest first).
-function findCards(img, maxFrac){
+function findCards(img, maxFrac, raw){
   const w = img.width, h = img.height, minA = 0.008 * w * h, maxA = (maxFrac || 0.5) * w * h;
   const g = blur3(toGray(img), w, h), n = w * h, found = [];
   // (a) thresholds: card brighter than the mat, then darker
@@ -257,6 +257,10 @@ function findCards(img, maxFrac){
   const mean = sum / n, sd = Math.sqrt(Math.max(0, sq / n - mean * mean)), et = Math.max(40, mean + 0.8 * sd);
   const edge = new Uint8Array(n); for(let i = 0; i < n; i++) edge[i] = mag[i] > et ? 1 : 0;
   found.push(...blobQuads(dilate3(edge, w, h), w, h, minA, maxA, true));
+  if(raw){
+    found.sort((a, b) => b.area - a.area);
+    return found.filter((f, i) => found.slice(0, i).every(o => o.q.some((c, k) => dist(c, f.q[k]) > 0.03 * Math.sqrt(f.area))));
+  }
   return nmsQuads(found);
 }
 function nmsQuads(found){
@@ -380,6 +384,26 @@ function refineByEdges(img, q, opts){
   if(out.some((p, i) => !p || dist(p, q[i]) > 0.2 * side)) return null;
   return out;
 }
+function pointInQuad(q, p, tol){
+  let pos = 0, neg = 0;
+  for(let i = 0; i < 4; i++){
+    const a = q[i], b = q[(i + 1) % 4], len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const d = ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) / len;
+    if(d > tol) pos++; else if(d < -tol) neg++;
+  }
+  return !(pos && neg);
+}
+// Card-shaped outlines in a crop that contain the clicked point (largest first, at most 4), in crop coordinates.
+function candidatesAt(img, pt){
+  const { img: small, s } = downscale(img, 360), p = [pt[0] * s, pt[1] * s], n = small.width * small.height;
+  const out = [];
+  for(const f of findCards(small, 0.9, true)){
+    if(f.area < 0.02 * n || !pointInQuad(f.q, p, 2)) continue;
+    if(out.every(o => o.q.some((c, k) => dist(c, f.q[k]) > 0.06 * Math.sqrt(f.area)))) out.push(f);
+    if(out.length >= 4) break;
+  }
+  return out.map(f => f.q.map(c => [c[0] / s, c[1] / s]));
+}
 // Re-find the exact card outline inside a rough crop (a drawn box or a tracked card), at higher resolution.
 function refineQuad(img, guess){
   const { img: small, s } = downscale(img, 320), ga = polyAreaOf(guess);
@@ -492,4 +516,4 @@ function unpackLibrary(json, buf){
   return { n, H, meta: json.meta };
 }
 
-if(typeof module !== 'undefined') module.exports = { findCards, findCardsBg, bgNew, bgAdd, bgDone, refineQuad, refineByEdges, downscale, polyAreaOf, fingerprint, recognize, warp, orderQuad, portraitQuad, rot180, packLibrary, unpackLibrary, NW, CW, CH, REG };
+if(typeof module !== 'undefined') module.exports = { findCards, candidatesAt, pointInQuad, findCardsBg, bgNew, bgAdd, bgDone, refineQuad, refineByEdges, downscale, polyAreaOf, fingerprint, recognize, warp, orderQuad, portraitQuad, rot180, packLibrary, unpackLibrary, NW, CW, CH, REG };

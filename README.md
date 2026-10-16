@@ -2,11 +2,11 @@
 
 Webcam table for Grand Archive with automatic card recognition.
 
-How a card is recognized: the card finder (plain JavaScript, nothing to download) converts the frame to grayscale, blurs it, thresholds it, finds external contours and fits four corners, filtered by area and aspect ratio. The outline is then snapped to the real card edges, the perspective is corrected to an upright card, and perceptual hashes (DCT pHash) of the art, the cost corner and the element corner are matched to the library by Hamming distance.
+How a card is identified: nothing is scanned by itself. Click a card in any video (yours or another player's) and the app finds the card outline under the click (grayscale, blur, threshold, external contours, four corners, filtered by area and aspect ratio), draws a box around it, snaps the box to the real card edges, corrects the perspective to an upright card, and matches perceptual hashes (DCT pHash) of the art, the cost corner and the element corner against the library by Hamming distance. If no outline is found, drag a box around the card instead.
 
-The empty mat is learned first: when the table opens, the app takes a few pictures of what the camera sees (about a second, keep cards off the mat) and remembers them. After that it only looks at what differs from the mat, so bright or patterned playmats cost almost nothing to ignore. Cards that are already on the mat when it is learned are found and read too. If one is taken away, the mat is learned again once things go quiet. Use **Recapture mat** after moving the camera or changing the lighting.
+On a busy or bright playmat the app also uses a picture of the empty mat, learned for about a second when the table opens (keep cards off the mat then), to tell a card from the mat's pattern. It is only a helper: clicks also work without it. Press **Relearn mat** after moving the camera or changing the lighting.
 
-If nothing is recognized, look at the chip in the top-left of your video and the **Card library** box on the right. They say whether the card library loaded, whether cards are being found, and how many.
+If nothing is identified, look at the chip in the top-left of your video and the **Card library** box on the right. They say whether the card library loaded.
 
 ## Put it on GitHub Pages
 1. Create a repository and upload everything in this folder, including `index.html`, `algo.js`, `worker.js`, the `tools` folder and the hidden `.github` folder (if the web uploader skips it, create `.github/workflows/library.yml` with Add file > Create new file).
