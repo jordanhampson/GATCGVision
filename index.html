@@ -4,9 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Archive Table — Grand Archive over webcam</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
   --felt:#12302d; --panel:#0d1f1d; --panel-hi:#142b28;
@@ -89,6 +86,10 @@ details.net .note{color:var(--muted);font-size:13.5px;margin:10px 0}
 details.net pre{white-space:pre-wrap;font:13px/1.5 var(--sans);background:var(--panel-hi);border-radius:8px;padding:10px;margin:10px 0}
 details.net textarea{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:12.5px/1.4 ui-monospace,Menlo,monospace;resize:vertical}
 details.net .opt{display:flex;align-items:center;gap:8px;margin-top:8px}
+details.net h4.mini{margin:14px 0 4px;font-family:var(--serif);font-size:14px}
+details.net .relayform{display:grid;gap:8px}
+details.net details.adv{margin-top:12px}
+details.net details.adv summary{color:var(--muted);font-size:13px}
 .callout{position:absolute;left:12px;top:46px;width:min(34%,190px);border-radius:10px;overflow:hidden;border:2px solid var(--brass);background:#071312;box-shadow:0 8px 24px rgba(0,0,0,.5)}
 .callout img{display:block;width:100%}
 .callout span{display:block;padding:3px 8px;font-size:12px;font-weight:600;background:var(--brass);color:var(--brass-ink)}
@@ -158,12 +159,22 @@ details.net .opt{display:flex;align-items:center;gap:8px;margin-top:8px}
     <p id="lobbyMsg" role="status"></p>
     <details class="net" id="netDetails">
       <summary>Connection trouble?</summary>
-      <p class="note">Tables use direct browser-to-browser connections. Strict home routers, mobile data and work or school networks can block them, and a relay (TURN) server fixes that. Each player can run this check on their own network.</p>
+      <p class="note">Tables use direct browser-to-browser connections. Strict home routers, mobile data and work or school networks can block them. A relay (TURN) server fixes that. Each player can run this check on their own network.</p>
       <button class="btn small" id="netCheck" type="button">Check my network</button>
       <pre id="netReport" hidden></pre>
-      <label for="iceExtra">Extra relay servers (optional, JSON)</label>
-      <textarea id="iceExtra" rows="3" spellcheck="false" placeholder='[{"urls":"turn:relay.example.com:3478","username":"name","credential":"secret"}]'></textarea>
-      <label class="opt"><input type="checkbox" id="forceRelay"> Send everything through the relay (for testing)</label>
+      <h4 class="mini">Relay server</h4>
+      <p class="note">Free option: make an account at metered.ca (Open Relay, advertised as 20 GB a month free), then copy the server address, username and password it gives you. For two players, a working relay on <b>either</b> side is enough, so if you are hosting, you having it usually lets strict-network players join you. Saved on this device only.</p>
+      <div class="relayform">
+        <input type="text" id="relayHost" placeholder="Server address, e.g. global.relay.metered.ca" spellcheck="false" autocomplete="off">
+        <input type="text" id="relayUser" placeholder="Username" spellcheck="false" autocomplete="off">
+        <input type="password" id="relayPass" placeholder="Password" autocomplete="off">
+      </div>
+      <details class="adv">
+        <summary>Advanced</summary>
+        <label for="iceExtra">Extra ICE servers (JSON)</label>
+        <textarea id="iceExtra" rows="3" spellcheck="false" placeholder='[{"urls":"turn:relay.example.com:3478","username":"name","credential":"secret"}]'></textarea>
+        <label class="opt"><input type="checkbox" id="forceRelay"> Send everything through the relay (for testing)</label>
+      </details>
     </details>
   </section>
   <section class="preview">
@@ -237,8 +248,11 @@ details.net .opt{display:flex;align-items:center;gap:8px;margin-top:8px}
 
 <div id="toast" role="status" hidden></div>
 
-<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="net-config.js"></script>
+<script src="mesh.js"></script>
+<script>window.__fb = !!(window.ARCHIVE_NET && ARCHIVE_NET.signaling && ARCHIVE_NET.signaling.type === 'firebase');</script>
+<script>if(!window.__fb) document.write('<script src="vendor/peerjs.min.js"><\/script>');</script>
+<script>if(!window.__fb && !window.Peer) document.write('<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"><\/script>');</script>
 <script src="algo.js"></script>
 <script>
 (() => {
@@ -484,21 +498,65 @@ function dragEnd(t, e){
 const net = { peer: null, code: '', host: false, conns: new Map(), calls: new Map(), members: new Set(),
   link: new Map(), initiated: new Set(), retries: new Map(), quiet: new Set() };
 const NET = window.ARCHIVE_NET || { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+// Self-hosted mode: when this page is served by selfhost/server.js, config.json tells it where your own
+// matchmaking server and relay are. Then no public STUN, relay or matchmaking server is used at all.
+const selfReady = (async () => {
+  try{
+    const tok = new URLSearchParams(location.search).get('t'), qs = tok ? '?t=' + encodeURIComponent(tok) : '';   // optional access link: ...?t=TOKEN
+    const r = await fetch('config.json' + qs, { cache: 'no-store' }); if(!r.ok) return;
+    const c = await r.json(); if(!c || !c.selfHosted) return;
+    NET.exclusive = true; NET.iceServers = []; NET.relay = null;
+    if(NET.signaling){            // a public database is never used in self-hosted mode: use the PeerJS client with your own server
+      NET.signaling = null;
+      if(!window.Peer) await new Promise(res => { const sc = document.createElement('script'); sc.src = 'vendor/peerjs.min.js'; sc.onload = sc.onerror = res; document.head.appendChild(sc); });
+    }
+    NET.turnCredentials = location.origin + '/turn' + qs;
+    if(c.peerServer) NET.peerServer = c.peerServer;
+  }catch(e){}
+})();
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const newCode = () => Array.from({ length: 5 }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]).join('');
 
-// ICE servers: the ones in net-config.js plus anything pasted into the lobby's "Connection trouble?" box.
+// A relay (TURN) entry from a server address, username and password. "host" or "host:port".
+function relayServers(r){
+  if(!r || !r.host || !r.username) return [];
+  const m = /^(?:turns?:)?\/*([^:/?]+)(?::(\d+))?/.exec(String(r.host).trim()); if(!m) return [];
+  const h = m[1], port = m[2];
+  const urls = port ? [`turn:${h}:${port}`, `turn:${h}:${port}?transport=tcp`]
+                    : [`turn:${h}:80`, `turn:${h}:80?transport=tcp`, `turn:${h}:443`, `turns:${h}:443?transport=tcp`];
+  return [{ urls, username: r.username, credential: r.credential || '' }];
+}
+// Short-lived relay credentials from the Cloudflare Worker (net-config.js: turnCredentials).
+const relayCreds = { ice: [], at: 0, error: '' };
+async function ensureRelayCredentials(force){
+  const url = NET.turnCredentials; if(!url) return;
+  if(!force && relayCreds.ice.length && Date.now() - relayCreds.at < 6 * 3600 * 1000) return;
+  const ctrl = new AbortController(), to = setTimeout(() => ctrl.abort(), 6000);
+  try{
+    const r = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json(); let list = j && j.iceServers; if(list && !Array.isArray(list)) list = [list];
+    if(!Array.isArray(list) || !list.length) throw new Error('unexpected reply');
+    relayCreds.ice = list; relayCreds.at = Date.now(); relayCreds.error = '';
+  }catch(e){ relayCreds.error = e.name === 'AbortError' ? 'timed out' : (e.message === 'HTTP 403' ? 'this server needs its full invite link (the one ending in ?t=…)' : (e.message || String(e))); }
+  finally{ clearTimeout(to); }
+}
+const savedRelay = () => ({ host: store.get('relay_host', ''), username: store.get('relay_user', ''), credential: store.get('relay_pass', '') });
+// ICE servers: net-config.js, plus the relay and extra servers saved in the lobby's "Connection trouble?" box.
 function iceConfig(){
   let extra = [];
   try{ const v = JSON.parse(store.get('ice', '') || '[]'); if(Array.isArray(v)) extra = v; }catch(e){}
-  const c = { iceServers: [...(NET.iceServers || []), ...extra] };
+  const c = { iceServers: [...(NET.iceServers || []), ...relayCreds.ice, ...relayServers(NET.relay), ...relayServers(savedRelay()), ...extra] };
   if(store.get('relay', '0') === '1') c.iceTransportPolicy = 'relay';
   return c;
 }
-const peerOptions = () => Object.assign({ debug: 0, config: iceConfig() }, NET.peerServer || {});
+// Matchmaking: the public PeerJS server by default; a Firebase Realtime Database if net-config.js sets `signaling`.
+const useFirebase = () => !!(NET.signaling && NET.signaling.type === 'firebase' && NET.signaling.url && window.ArchivePeer);
+const PeerClass = () => useFirebase() ? window.ArchivePeer : window.Peer;
+const peerOptions = () => Object.assign({ debug: 0, config: iceConfig(), signaling: NET.signaling }, useFirebase() ? {} : (NET.peerServer || {}));
 function createPeer(id){
   return new Promise((res, rej) => {
-    const p = new Peer(id, peerOptions());
+    const p = new (PeerClass())(id, peerOptions());
     p.on('open', () => res(p));
     p.on('error', e => rej(e));
   });
@@ -539,7 +597,7 @@ function watchLink(call){
     if(!pc){ if(++n > 40) stop(); return; }
     const st = pc.iceConnectionState;
     if(st === seen) return; seen = st;
-    if(st === 'connected' || st === 'completed') setLink(id, await linkKind(pc));
+    if(st === 'connected' || st === 'completed'){ const kind = await linkKind(pc); setLink(id, kind); if(kind === 'relay') capSenders(call, true); }
     else if(st === 'failed'){ stop(); onLinkFailed(id); }
     else if(st === 'disconnected') setLink(id, 'lost');
     else if(st === 'closed') stop();
@@ -579,14 +637,15 @@ function setupConn(conn){
   conn.on('close', () => dropPlayer(conn.peer));
   conn.on('error', () => dropPlayer(conn.peer));
 }
-function capSenders(call){
+function capSenders(call, relayed){
   const pc = call.peerConnection; if(!pc) return;
   pc.getSenders().forEach(async s => {
     if(!s.track || s.track.kind !== 'video') return;
     try{
       const p = s.getParameters(); if(!p.encodings || !p.encodings.length) p.encodings = [{}];
-      p.encodings[0].maxBitrate = 1200000; p.encodings[0].maxFramerate = 24;
-      p.encodings[0].scaleResolutionDownBy = cfg.quality === '1080' ? 1.5 : 1;
+      // Through a relay, send less: the relay's data allowance is limited and relayed paths are less steady.
+      p.encodings[0].maxBitrate = relayed ? 450000 : 1200000; p.encodings[0].maxFramerate = relayed ? 15 : 24;
+      p.encodings[0].scaleResolutionDownBy = (cfg.quality === '1080' ? 1.5 : 1) * (relayed ? 1.5 : 1);
       await s.setParameters(p);
     }catch(e){}
   });
@@ -636,17 +695,21 @@ function onIncoming(conn){
   });
 }
 // Back to the lobby with a message the player can act on.
-function failJoin(message){
+function failJoin(message, diagnose){
   leaveTable(); $('#toast').hidden = true;
   $('#lobbyMsg').textContent = message;
   $('#netDetails').open = true;
+  if(diagnose) runNetCheck(true);          // find out why, and say so
 }
 async function enterTable(code, asHost){
+  await selfReady;
   const msg = $('#lobbyMsg'); msg.textContent = '';
   me.name = $('#nameIn').value.trim() || 'Player'; store.set('name', me.name);
   if(!cam.stream){
     try{ await openCamera(); }catch(e){ toast('Camera is off, so others will see a placeholder. Use Restart camera in the controls to turn it on.'); }
   }
+  await ensureRelayCredentials();
+  if(NET.turnCredentials && relayCreds.error && !relayCreds.ice.length) toast('Could not get relay credentials (' + relayCreds.error + '). Only direct connections will work.');
   let hostConn = null;
   try{
     if(asHost){
@@ -683,7 +746,7 @@ async function enterTable(code, asHost){
       hostConn = link('archtbl-' + code);
       setTimeout(() => {
         if(net.peer === peer && !net.host && hostConn && !hostConn.open)
-          failJoin('Could not reach that table. Check the code. If it is right, one of your networks may be blocking direct connections: run the network check below.');
+          failJoin('Could not connect to that table. If the code is right, a network between you is blocking the direct connection. Working out which…', true);
       }, 20000);
     }
   }catch(e){
@@ -731,7 +794,8 @@ async function gather(servers, ms){
   });
   pc.close(); return out;
 }
-async function runNetCheck(){
+async function runNetCheck(auto){
+  await selfReady;
   const out = $('#netReport'), btn = $('#netCheck'); out.hidden = false; btn.disabled = true;
   const show = lines => { out.textContent = lines.join('\n'); };
   const lines = ['Checking your network…']; show(lines);
@@ -740,18 +804,22 @@ async function runNetCheck(){
     const mm = await new Promise(res => {
       let done = false; const fin = v => { if(!done){ done = true; clearTimeout(to); try{ p && p.destroy(); }catch(e){} res(v); } };
       let p = null; const to = setTimeout(() => fin(false), 8000);
-      try{ p = new Peer(undefined, peerOptions()); p.on('open', () => fin(true)); p.on('error', () => fin(false)); }catch(e){ fin(false); }
+      try{ p = new (PeerClass())(undefined, peerOptions()); p.on('open', () => fin(true)); p.on('error', () => fin(false)); }catch(e){ fin(false); }
     });
-    lines[0] = (mm ? 'OK   ' : 'FAIL ') + 'Matchmaking server ' + (mm ? 'reachable.' : 'not reachable. Players cannot find each other without it. Check your internet connection or firewall.'); show(lines);
+    lines[0] = (mm ? 'OK   ' : 'FAIL ') + (useFirebase() ? 'Signalling database ' : 'Matchmaking server ') + (mm ? 'reachable.' : 'not reachable. Players cannot find each other without it. Check your internet connection' + (useFirebase() ? ', the database address in net-config.js and its rules.' : ' or firewall.')); show(lines);
+    if(NET.turnCredentials){ await ensureRelayCredentials(true); lines.push(relayCreds.ice.length ? 'OK   Relay credentials received.' : 'FAIL Relay credentials: ' + relayCreds.error + (NET.exclusive ? '. Is your relay server running?' : '. Check the Worker address in net-config.js.')); }
     // 2. direct route (STUN) and NAT type, using two different STUN servers
     lines.push('...  Testing the direct route…'); show(lines);
-    const g = await gather([{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }], 7000);
+    await ensureRelayCredentials();
+    const stunUrls = [...new Set((iceConfig().iceServers || []).flatMap(s => [].concat(s.urls)).filter(u => /^stun:/.test(u)))].slice(0, 2);
+    const g = await gather(stunUrls.map(u => ({ urls: u })), 7000);
     const srflx = g.filter(c => c.type === 'srflx'), byLocal = {};
     srflx.forEach(c => { (byLocal[c.rport] = byLocal[c.rport] || new Set()).add(c.port); });
     const symmetric = Object.values(byLocal).some(s => s.size > 1);
     lines.pop();
     lines.push((srflx.length ? 'OK   ' : 'FAIL ') + 'Direct route (STUN): ' + (srflx.length ? 'your public address was found.' : 'no answer. UDP traffic to the internet seems to be blocked on this network.'));
-    if(srflx.length) lines.push((symmetric ? 'WARN ' : 'OK   ') + 'Router type: ' + (symmetric ? 'strict (symmetric NAT). Direct connections to many networks will fail.' : 'friendly. Direct connections should work.'));
+    if(srflx.length && stunUrls.length > 1) lines.push((symmetric ? 'WARN ' : 'OK   ') + 'Router type: ' + (symmetric ? 'strict (symmetric NAT). Direct connections to many networks will fail.' : 'friendly. Direct connections should work.'));
+    else if(srflx.length) lines.push('INFO Router type: not tested (it needs two different STUN servers).');
     show(lines);
     // 3. relay (TURN) from the configured servers
     const turn = (iceConfig().iceServers || []).filter(s => [].concat(s.urls).some(u => /^turns?:/.test(u)));
@@ -762,9 +830,13 @@ async function runNetCheck(){
     lines.push('');
     if(!mm) lines.push('Result: fix the matchmaking connection first.');
     else if(relay.length) lines.push('Result: good. Even if a direct route is impossible, the relay can carry the video.');
-    else if(!srflx.length || symmetric) lines.push('Result: connections to other networks will probably fail. Add a relay (TURN) server: see net-config.js and the README.');
+    else if(!srflx.length || symmetric){
+      lines.push('Result: ' + (symmetric ? 'your router is strict (symmetric NAT)' : 'UDP is blocked on your network') + ' and there is no working relay, so a direct connection to most players is not possible.');
+      lines.push('Fix: add a relay server in the box below (or in net-config.js). If the host has a working relay, you can usually join them even if you have none yourself.');
+    }
     else lines.push('Result: looks fine. If a friend still cannot connect, ask them to run this check on their network too.');
     show(lines);
+    if(auto){ const r = lines.filter(l => /^Result:/.test(l)).map(l => l.replace(/^Result: /, ''))[0]; if(r) $('#lobbyMsg').textContent = 'Could not connect to that table. ' + r.charAt(0).toUpperCase() + r.slice(1); }
   }catch(e){ lines.push('Check failed: ' + (e.message || e)); show(lines); }
   btn.disabled = false;
 }
@@ -976,6 +1048,7 @@ async function identifyAt(t, vx, vy){
     flash(t, spot(vx, vy, 26), 'No card found here', false, 4000);
     toast('Could not find a card outline there. Click nearer the middle of the card, or drag a box around it.'); return;
   }
+  if(store.get('debug', '')) console.log('identify', JSON.stringify(m.dbg));
   if(!m.res || !m.res.list.length){ flash(t, spot(vx, vy, 26), 'Could not read that card', false, 4000); return; }
   announce(t, m.res, m.res.quad.map(p => [p[0] + x0, p[1] + y0]));
 }
@@ -1090,6 +1163,15 @@ $('#clearTable').onclick = () => { onTable.clear(); renderOnTable(); };
 $('#strict').oninput = e => { cfg.strict = parseFloat(e.target.value); store.set('strict2', cfg.strict); };
 $('#autoShare').onchange = e => { cfg.autoShare = e.target.checked; store.set('auto', cfg.autoShare ? '1' : '0'); };
 $('#netCheck').onclick = runNetCheck;
+$('#relayHost').value = store.get('relay_host', ''); $('#relayUser').value = store.get('relay_user', ''); $('#relayPass').value = store.get('relay_pass', '');
+const saveRelay = () => { store.set('relay_host', $('#relayHost').value.trim()); store.set('relay_user', $('#relayUser').value.trim()); store.set('relay_pass', $('#relayPass').value); };
+['relayHost', 'relayUser', 'relayPass'].forEach(id => {
+  $('#' + id).addEventListener('input', saveRelay);
+  $('#' + id).addEventListener('change', () => {
+    saveRelay(); const r = savedRelay();
+    toast(r.host && r.username ? 'Relay saved on this device. Press Check my network to test it.' : 'Relay cleared.');
+  });
+});
 $('#iceExtra').value = store.get('ice', '');
 $('#iceExtra').onchange = e => {
   const v = e.target.value.trim();

@@ -1,0 +1,9 @@
+# The page and relay credentials
+{$DOMAIN} {
+	reverse_proxy web:3000
+}
+
+# The matchmaking server (WebSockets are handled automatically)
+{$DOMAIN}:9443 {
+	reverse_proxy peer:9000
+}

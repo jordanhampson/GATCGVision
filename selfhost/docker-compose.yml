@@ -1,0 +1,68 @@
+# Archive Table, fully self-hosted: your relay, your matchmaking server, your web server.
+# Copy .env.example to .env, fill it in, then:  docker compose up -d
+services:
+  # The app, relay credentials and the page's settings (no dependencies of its own).
+  web:
+    image: node:20-alpine
+    restart: unless-stopped
+    volumes: ["..:/site:ro"]
+    environment:
+      PORT: "3000"
+      SITE_DIR: /site
+      TURN_SECRET: ${TURN_SECRET}
+      TURN_HOST: ${DOMAIN}
+      PEER_HOST: ${DOMAIN}
+      PEER_PORT: "9443"
+      PUBLIC_HTTPS: "1"
+      ACCESS_TOKEN: ${ACCESS_TOKEN:-}
+      PEERJS_CLIENT_PATH: /tmp/deps/node_modules/peerjs/dist/peerjs.min.js
+    command: sh -c "npm install --prefix /tmp/deps --omit=dev --no-audit --no-fund peerjs@1.5.4 && node /site/selfhost/server.js"
+
+  # Matchmaking: lets players find each other by table code. Carries no video.
+  peer:
+    image: node:20-alpine
+    restart: unless-stopped
+    command: sh -c "npm install -g --no-audit --no-fund peer@1 && peerjs --port 9000 --proxied true"
+
+  # The relay (STUN + TURN). Carries video for players who cannot connect directly. No data cap from us.
+  coturn:
+    image: coturn/coturn:latest
+    restart: unless-stopped
+    network_mode: host            # a relay needs its UDP ports directly on the machine
+    command:
+      - -n
+      - --log-file=stdout
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET}
+      - --realm=${DOMAIN}
+      - --external-ip=${PUBLIC_IP}
+      - --fingerprint
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --no-multicast-peers
+      # never relay into the machine's own network or other private ranges
+      - --denied-peer-ip=0.0.0.0-0.255.255.255
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=100.64.0.0-100.127.255.255
+      - --denied-peer-ip=127.0.0.0-127.255.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+      - --denied-peer-ip=198.18.0.0-198.19.255.255
+
+  # HTTPS for the page and the matchmaking server (cameras only work on https pages). Gets certificates by itself.
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "9443:9443"]
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddy_data:/data", "caddy_config:/config"]
+
+volumes:
+  caddy_data:
+  caddy_config:

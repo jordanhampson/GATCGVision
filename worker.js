@@ -64,7 +64,10 @@ self.onmessage = async ev => {
       }
       if(!cands.length){ postMessage({ type: 'result', id: m.id, res: null, noCard: true }); return; }
       postMessage({ type: 'box', id: m.id, quad: cands[0].q });
-      postMessage({ type: 'result', id: m.id, res: pack(readBest(img, cands)) });
+      const best = readBest(img, cands);
+      // what was tried (shown in the browser console when localStorage archtbl_debug is set)
+      const dbg = { bg: !!(bg && bg.ready && m.small), candidates: cands.map(c => ({ trusted: c.trusted, area: Math.round(polyAreaOf(c.q)) })), score: best ? +best.r.list[0].score.toFixed(2) : null, usedArea: best ? Math.round(polyAreaOf(best.q)) : null };
+      postMessage({ type: 'result', id: m.id, res: pack(best), dbg });
     }else if(m.type === 'recognize'){
       // A hand-drawn box: find the real outline inside it, then read it.
       if(!lib){ postMessage({ type: 'result', id: m.id, res: null, error: 'no library' }); return; }

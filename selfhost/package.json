@@ -1,0 +1,7 @@
+{
+  "name": "archive-table-selfhost",
+  "private": true,
+  "description": "Self-hosting server for Archive Table. The only dependency is the PeerJS browser library, which the server hands to the page so it is not fetched from a public CDN.",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "peerjs": "1.5.4" }
+}

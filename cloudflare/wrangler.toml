@@ -1,0 +1,11 @@
+# Optional: deploy with the command line instead of the dashboard.
+#   npm install -g wrangler
+#   wrangler secret put TURN_KEY_API_TOKEN      (paste the token when asked)
+#   wrangler deploy
+name = "archive-table-turn"
+main = "turn-worker.js"
+compatibility_date = "2025-10-01"
+
+[vars]
+TURN_KEY_ID = "PASTE_YOUR_TURN_KEY_ID"
+ALLOWED_ORIGINS = "https://YOURNAME.github.io"

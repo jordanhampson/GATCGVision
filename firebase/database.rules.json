@@ -1,0 +1,27 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "rooms": {
+      "$room": {
+        ".validate": "$room.matches(/^[A-Za-z0-9_]{1,12}$/)",
+        "peers": {
+          "$id": {
+            ".read": true,
+            ".write": true,
+            ".validate": "newData.isNumber()"
+          }
+        },
+        "sig": {
+          "$to": {
+            ".read": true,
+            ".write": true,
+            "$msg": {
+              ".validate": "newData.hasChildren(['from', 'cid', 'kind', 'type', 'd']) && newData.child('from').isString() && newData.child('from').val().length < 80 && newData.child('d').isString() && newData.child('d').val().length < 60000"
+            }
+          }
+        }
+      }
+    }
+  }
+}
